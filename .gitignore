@@ -1,0 +1,34 @@
+node_modules
+dist
+.DS_Store
+Thumbs.db
+*.local
+.vite
+.cursor
+_replay_history.py
+
+# Source / concept art (not the game runtime)
+/assets/
+
+# Raster, media, DCC — keep locally
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.psd
+*.xcf
+*.ico
+*.mp3
+*.wav
+*.ogg
+*.mp4
+*.webm
+*.blend
+*.fbx
+*.glb
+*.gltf
+*.exr

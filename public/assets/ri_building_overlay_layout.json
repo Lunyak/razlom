@@ -1,0 +1,7 @@
+{
+  "barracks": { "x": -0.34, "y": 0.42, "scale": 0.38, "depth": 2 },
+  "archery_range": { "x": -0.16, "y": 0.42, "scale": 0.34, "depth": 3 },
+  "mage_tower": { "x": 0.36, "y": 0.42, "scale": 0.48, "depth": 2 },
+  "temple": { "x": 0.0, "y": 0.42, "scale": 0.4, "depth": 1 },
+  "hero_hall": { "x": 0.22, "y": 0.42, "scale": 0.38, "depth": 3 }
+}
