@@ -1,0 +1,86 @@
+---
+description: Per-race avatar art + frame constructor; frost ≠ faction
+alwaysApply: true
+---
+
+# Faction / race visuals (do not drift)
+
+Distinction is **avatar art style** + **constructed frame per race** — not color washes on the same frame.
+
+Source: `src/ui/raceFrameConstructor.ts`, `src/game/factionVisual.ts`.
+
+## RI — LOCKED
+
+- Avatars: Victorian daguerreotype, warm sepia, torn cream plate
+- Frame: ornate **gold glass** (`buildRaceFrame("ri")` → `glass_frame_border`)
+- Hurt: `*_hurt.png` swap
+- **Clothing (living troops, 1914 field) — not British scarlet**
+  - Tunic: olive-khaki / protective green (`защитный`) гимнастёрка or officer китель, high stand collar, brass buttons
+  - Shoulder boards: rectangular gold **погоны** with thin branch piping (red for infantry) — prestige is gold, not a red coat
+  - Cap: matching olive **фуражка**, black leather visor, white-orange cockade
+  - Trousers (when shown): dark navy with yellow lampasse, or matching khaki
+  - Leather: dark brown harness / Sam Browne
+  - Red is **piping only**, never the mundir
+  - Guards (`гвардеец`): khaki or dark bottle-green under a cuirass; red = facings only
+  - Junkers (`юнкер`): same field kit as the ref plate
+  - Riflemen (`стрелок` / `егерь`): khaki gymnastyorka, фуражка, Mosin — not ushanka, not a medieval forest cloak
+  - Clergy (послушник, иеромонах, черница, миссионер): Orthodox black/dark — not a mundir
+  - Imperial Memory undead: rotting version of the **same khaki kit**, not redcoats
+  - Never: British redcoat, crimson greatcoat, scarlet tabard, ice-blue
+  - Ref: `docs/lore/refs/ri-uniform-field-1914.png`
+  - Prompts: `RI_FIELD_KIT` in `src/game/portraits.ts`
+
+## Ordo Lumen
+
+- Avatars: occult ash / wet-plate bone-grey (generate to this note — do not fake with blue tint)
+- Frame: **iron occult plaque** constructed in code (bevels, diamonds, rivets) — not RI glass retinted
+- Never use ice-blue as Ordo identity
+
+## Восставшие
+
+- Frame: mourning / rotten border (`risen` constructor)
+- Avatars: funerary / mildew plate (when art exists)
+
+## Neutral
+
+- Frame: simple brass tintype corners (`neutral` constructor)
+
+## Folk / лубок
+
+- Frame: beige lubok plate on black — `screen_frame_folk.png` (four corners only, no rails)
+- Avatars: lubok plate (when art exists) — not RI daguerreotype, not ice-blue
+- Screen chrome preview: switcher **Фолк** / key **5**
+- **Faction map:** Казачество (`cossack`) → folk frame
+
+## Thorn / терн
+
+- Frame: gothic grimoire corners — skull/cross stay off the rails (`screen_frame_thorn.png`, four corner crops; never stretch the plate, no connecting rails)
+- Avatars: bone-white etched plate (when art exists)
+- Switcher **Терн** / key **6**
+- Do not aggressively remap all four rims — side-only squeeze at most
+- **Faction map:** Горцы (`highlander`) → thorn frame
+
+## Модерн / северный модерн
+
+- Frame: patinated bronze Art Nouveau 1914 — birch, rowan (`screen_frame_moderne.png`, four corners only, no rails)
+- Avatars: bronze-green wet-plate (when art exists) — not gold glass, not ice-blue
+- Switcher **Модерн** / key **7**
+
+## Folio / фолио — SCREEN chrome only (not a faction)
+
+- Frame: Baroque manuscript filigree — dark sepia ink on cream parchment, thin knotwork rails, flared acanthus corners (`folio_corner_*.png` + tiled `folio_rail_{h,v}.png`)
+- Two constructor layouts: **Фолио** (full window) / **Фолио · панель** (left dossier + vertical divider)
+- Switcher **Фолио** / key **8**, **Фолио · панель** / key **9**
+- Not gold glass, not charcoal, not ice-blue
+
+## Cold / frostbite — STATUS only
+
+`setFrost` / `flashFrost` = cold attacks. Never faction chrome.
+
+## Wiring
+
+- Always `glassStyleForFaction(army.faction)` / `buildRaceFrame(race, …)`
+- Drop-in PNG (preferred): `public/assets/ui/race_frame_{ri|ordo|risen|neutral|folk|thorn|moderne}.png` — 780×780, transparent center ~708×708; optional `_hero`
+- Folio screen chrome: `folio_corner_{tl|tr|bl|br}.png` + `folio_rail_{h|v}.png`
+- No PNG → procedural recipe in `raceFrameConstructor.ts`
+- New race look → asset and/or recipe + this rule

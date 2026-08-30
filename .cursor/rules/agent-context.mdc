@@ -1,0 +1,23 @@
+---
+description: Keep agent context cheap; no default browser/subagent/image loops
+alwaysApply: true
+---
+
+# Context economy (this game)
+
+Most work here is visual. Do not pay a full Agent tax on every pixel tweak.
+
+## Do not
+
+- Open the browser, screenshot, or CDP-loop unless the user asked to verify, or the change is otherwise uncheckable.
+- Launch Task / subagents / parallel agents unless the user asked, or the work is 3+ disconnected areas.
+- Generate images unless the user explicitly asked for a picture or asset.
+- Read rasters under `public/assets/**`, whole folders, or 40KB+ files “to be thorough”.
+- Re-read files already in this turn, or dump `git status` of untracked PNG/terrain.
+
+## Do
+
+- Touch the smallest file set (`src/ui/…` for chrome, `src/game/…` for rules).
+- “Move N px / color / copy” → edit the known file; skip explore and browser.
+- Prefer Grep or Read on a named path over a repo-wide explore agent.
+- If you must verify in the browser: one pass, then stop.

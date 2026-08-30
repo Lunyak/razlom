@@ -4,7 +4,8 @@ dist
 Thumbs.db
 *.local
 .vite
-.cursor
+.cursor/*
+!.cursor/rules/
 _replay_history.py
 
 # Source / concept art (not the game runtime)
