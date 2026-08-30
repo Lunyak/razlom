@@ -1,6 +1,6 @@
 ﻿import Phaser from "phaser";
 import { leadershipLimit } from "../game/battle";
-import { FACTION_LABEL, GARRISON_LIMIT, UNIT_DEFS } from "../game/catalog";
+import { FACTION_LABEL, GARRISON_LIMIT, UNIT_DEFS, type RiteId } from "../game/catalog";
 import {
   formatRecruitLine,
   garrisonUnits,
@@ -26,6 +26,8 @@ import {
 } from "../game/data";
 import { playerFactionOf } from "../game/playerFaction";
 import { hireMissionary } from "../game/graves";
+import { isNight } from "../game/dayNight";
+import { performRite } from "../game/cityRites";
 import { ScreenHitRouter, isLeftHudClick, rectFromCenter, type ScreenHit } from "./ScreenHitRouter";
 import { viewH, viewSize, viewW } from "./viewport";
 import {
@@ -45,11 +47,13 @@ import {
 import { renderRecruitTab } from "./cityPanel/recruitTab";
 import { renderGarrisonTab } from "./cityPanel/garrisonTab";
 import { renderBuildTab } from "./cityPanel/buildTab";
+import { renderRiteTab } from "./cityPanel/riteTab";
 import type {
   BuildSlot,
   CityTabHost,
   GarrisonSlot,
   RecruitSlot,
+  RiteSlot,
   UpgradeSlot,
 } from "./cityPanel/types";
 import { DOSSIER, buildDossierChrome, dossierAccent } from "./vintageDossier";
@@ -113,6 +117,8 @@ export class CityPanel {
   private buildLayer: Phaser.GameObjects.GameObject[] = [];
   private upgradeSlots: UpgradeSlot[] = [];
   private upgradeLayer: Phaser.GameObjects.GameObject[] = [];
+  private riteSlots: RiteSlot[] = [];
+  private riteLayer: Phaser.GameObjects.GameObject[] = [];
   /** Buildings present last time the build tab painted — for appear tween. */
   private lastShownBuildings: BuildingId[] = [];
   /** Flat screen hits — sole input path while the panel is open. */
@@ -177,6 +183,7 @@ export class CityPanel {
     this.clearRecruitLayer();
     this.clearBuildLayer();
     this.clearUpgradeLayer();
+    this.clearRiteLayer();
     this.hits.clear();
     this.open = false;
     this.backdrop.setVisible(false);
@@ -342,11 +349,13 @@ export class CityPanel {
     this.clearRecruitLayer();
     this.clearBuildLayer();
     this.clearUpgradeLayer();
+    this.clearRiteLayer();
     this.content.removeAll(true);
     this.buildScreenTabs();
 
     if (this.tab === "recruit") this.renderRecruit();
     else if (this.tab === "garrison") this.renderGarrison();
+    else if (isNight(session.state)) this.renderRites();
     else this.renderBuild();
 
     this.rebuildHitMap();
@@ -368,6 +377,8 @@ export class CityPanel {
       buildSlots: this.buildSlots,
       upgradeLayer: this.upgradeLayer,
       upgradeSlots: this.upgradeSlots,
+      riteLayer: this.riteLayer,
+      riteSlots: this.riteSlots,
       lastShownBuildings: this.lastShownBuildings,
       selectedFormationUnitId: this.selectedFormationUnitId,
       heroInCity: () => this.heroInCity(),
@@ -387,6 +398,11 @@ export class CityPanel {
   private renderBuild(): void {
     if (!this.city) return;
     renderBuildTab(this.tabHost());
+  }
+
+  private renderRites(): void {
+    if (!this.city) return;
+    renderRiteTab(this.tabHost());
   }
 
   /**
@@ -446,6 +462,15 @@ export class CityPanel {
         z: 10,
         rect: b,
         onDown: () => this.doBuild(b.index),
+      });
+    }
+
+    for (const r of this.riteSlots) {
+      list.push({
+        id: `rite:${r.riteId}`,
+        z: 10,
+        rect: r,
+        onDown: () => this.doRite(r.riteId),
       });
     }
 
@@ -557,6 +582,12 @@ export class CityPanel {
     this.upgradeSlots.length = 0;
   }
 
+  private clearRiteLayer(): void {
+    for (const obj of this.riteLayer) obj.destroy();
+    this.riteLayer.length = 0;
+    this.riteSlots.length = 0;
+  }
+
   private clearGarrisonLayer(): void {
     for (const obj of this.garrisonLayer) obj.destroy();
     this.garrisonLayer.length = 0;
@@ -570,7 +601,7 @@ export class CityPanel {
     const specs: { id: TabId; x: number; label: string }[] = [
       { id: "recruit", x: this.cx + CITY_TAB_XS[0], label: "Рекруты" },
       { id: "garrison", x: this.cx + CITY_TAB_XS[1], label: "Гарнизон" },
-      { id: "build", x: this.cx + CITY_TAB_XS[2], label: "Постройки" },
+      { id: "build", x: this.cx + CITY_TAB_XS[2], label: isNight(session.state) ? "Ритуалы" : "Постройки" },
     ];
     for (const s of specs) {
       const active = this.tab === s.id;
@@ -815,6 +846,14 @@ export class CityPanel {
     if (!this.city) return;
     session.state.lastMessage = tryBuildByIndex(session.state, this.city, index);
     this.callbacks.onMessage(session.state.lastMessage);
+    this.refresh();
+    this.callbacks.onChanged();
+  }
+
+  private doRite(riteId: string): void {
+    if (!this.city) return;
+    const result = performRite(session.state, this.city, riteId as RiteId, this.army);
+    this.callbacks.onMessage(result.ok ? session.state.lastMessage : result.reason);
     this.refresh();
     this.callbacks.onChanged();
   }

@@ -13,7 +13,8 @@
  * Clicks: register rects on {@link hits}; WorldScene calls `hits.dispatch`.
  */
 import Phaser from "phaser";
-import type { Army } from "../../game/data";
+import { session, type Army } from "../../game/data";
+import { endTurnButtonHint, isNight } from "../../game/dayNight";
 import { ScreenHitRouter, rectFromCenter, rectFromXY } from "../ScreenHitRouter";
 import { endTurnButtonLayout, mapCharcoalChrome, minimapLayout, SIDEBAR_W } from "./layout";
 import { PlayerSidebar, type PlayerSidebarActions } from "./PlayerSidebar";
@@ -26,6 +27,8 @@ export type WorldHudActions = PlayerSidebarActions & {
   onCity: () => void;
   onInventory: () => void;
   onEndTurn: () => void;
+  onContinuePath: () => void;
+  onToggleRail: () => void;
   onPickMapTile: (gx: number, gy: number) => void;
 };
 
@@ -44,6 +47,9 @@ export class WorldHud {
   private built = false;
   private lastMinimap?: MinimapModel;
   private endTurnBtn?: Phaser.GameObjects.Image;
+  private endTurnLabel?: Phaser.GameObjects.Text;
+  private endTurnSize = 0;
+  private endTurnPressTimer?: Phaser.Time.TimerEvent;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -75,6 +81,18 @@ export class WorldHud {
         .setScrollFactor(0)
         .setDepth(74)
         .setVisible(true);
+      this.endTurnLabel = this.scene.add
+        .text(0, 0, "", {
+          fontFamily: "Georgia, serif",
+          fontSize: "13px",
+          color: "#e8d5a3",
+          stroke: "#1a1008",
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(75)
+        .setVisible(true);
     }
   }
 
@@ -103,6 +121,7 @@ export class WorldHud {
         rect: rectFromCenter(et.cx, et.cy, et.size * 0.86, et.size * 0.86),
         onDown: () => {
           if (this.settings.isOpen() || this.mapOverlay.isOpen()) return;
+          this.flashEndTurnPress();
           this.actions.onEndTurn();
         },
       });
@@ -113,8 +132,36 @@ export class WorldHud {
   hover(pointerX: number, pointerY: number): { hitId: string | undefined; overHud: boolean } {
     const hit = this.hits.pick(pointerX, pointerY);
     this.sidebar.hover(hit?.id);
-    this.paintEndTurn(hit?.id === "endTurn");
+    this.chrome.paintContinue(hit?.id === "continuePath");
+    this.chrome.paintRail(hit?.id === "railTrack");
     return { hitId: hit?.id, overHud: !!hit };
+  }
+
+  /** Glow + squash on click (or hotkey E) — not on hover. */
+  flashEndTurnPress(): void {
+    const btn = this.endTurnBtn;
+    if (!btn?.visible) return;
+    const size = this.endTurnSize || btn.displayWidth;
+    if (size <= 0) return;
+    this.scene.tweens.killTweensOf(btn);
+    this.endTurnPressTimer?.remove(false);
+    btn.setDisplaySize(size, size);
+    this.setEndTurnTexture("ui_btn_end_turn_hover");
+    const sx = btn.scaleX;
+    const sy = btn.scaleY;
+    btn.setScale(sx * 0.9, sy * 0.9);
+    this.scene.tweens.add({
+      targets: btn,
+      scaleX: sx,
+      scaleY: sy,
+      duration: 280,
+      ease: "Back.easeOut",
+    });
+    this.endTurnPressTimer = this.scene.time.delayedCall(520, () => {
+      this.setEndTurnTexture("ui_btn_end_turn");
+      btn.setDisplaySize(this.endTurnSize || size, this.endTurnSize || size);
+      this.refreshEndTurnLook();
+    });
   }
 
   refresh(model: WorldHudRefresh): void {
@@ -123,6 +170,27 @@ export class WorldHud {
     this.chrome.refresh(model);
     this.chrome.redrawMinimap(model);
     this.mapOverlay.refresh(model);
+    this.refreshEndTurnLook();
+    this.hits.remove("continuePath");
+    this.hits.remove("railTrack");
+    const continueRect = this.chrome.continueHitRect();
+    if (continueRect) {
+      this.hits.add({
+        id: "continuePath",
+        z: 14,
+        rect: continueRect,
+        onDown: () => this.actions.onContinuePath(),
+      });
+    }
+    const railRect = this.chrome.railHitRect();
+    if (railRect) {
+      this.hits.add({
+        id: "railTrack",
+        z: 14,
+        rect: railRect,
+        onDown: () => this.actions.onToggleRail(),
+      });
+    }
   }
 
   hitsMinimap(x: number, y: number): boolean {
@@ -131,7 +199,14 @@ export class WorldHud {
 
   /** Sidebar art, corner minimap, or the end-turn medallion. */
   blocksMapPointer(x: number, y: number): boolean {
-    return this.sidebar.coversPointer(x, y) || this.hitsMinimap(x, y) || this.hits.pick(x, y)?.id === "endTurn";
+    const hitId = this.hits.pick(x, y)?.id;
+    return (
+      this.sidebar.coversPointer(x, y) ||
+      this.hitsMinimap(x, y) ||
+      hitId === "endTurn" ||
+      hitId === "continuePath" ||
+      hitId === "railTrack"
+    );
   }
 
   settingsOpen(): boolean {
@@ -163,6 +238,7 @@ export class WorldHud {
   setChromeVisible(visible: boolean): void {
     this.chrome.setVisible(visible);
     this.endTurnBtn?.setVisible(visible);
+    this.endTurnLabel?.setVisible(visible);
   }
 
   charcoalChrome(w: number, h: number) {
@@ -173,21 +249,25 @@ export class WorldHud {
     const btn = this.endTurnBtn;
     if (!btn) return;
     const et = endTurnButtonLayout(w, h);
+    this.endTurnSize = et.size;
     btn.setPosition(et.cx, et.cy).setDisplaySize(et.size, et.size);
+    this.endTurnLabel?.setPosition(et.cx, et.cy);
   }
 
-  private paintEndTurn(hover: boolean): void {
+  private refreshEndTurnLook(): void {
     const btn = this.endTurnBtn;
     if (!btn) return;
-    const key = hover && this.scene.textures.exists("ui_btn_end_turn_hover")
-      ? "ui_btn_end_turn_hover"
-      : "ui_btn_end_turn";
-    if (btn.texture.key !== key) {
-      const dw = btn.displayWidth;
-      const dh = btn.displayHeight;
-      btn.setTexture(key);
-      btn.setDisplaySize(dw, dh);
-    }
+    if (isNight(session.state)) btn.setTint(0x8a6a48);
+    else btn.clearTint();
+    this.endTurnLabel?.setText(endTurnButtonHint(session.state).toUpperCase());
+  }
+
+  private setEndTurnTexture(key: string): void {
+    const btn = this.endTurnBtn;
+    if (!btn || !this.scene.textures.exists(key) || btn.texture.key === key) return;
+    const size = this.endTurnSize || btn.displayWidth;
+    btn.setTexture(key);
+    btn.setDisplaySize(size, size);
   }
 }
 

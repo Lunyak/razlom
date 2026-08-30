@@ -99,6 +99,107 @@ export function ensureCutout(scene: Phaser.Scene, srcKey: string): string | null
   return destKey;
 }
 
+const BLACK_HOLE_RGB = 14;
+
+function isNearBlack(r: number, g: number, b: number, a: number): boolean {
+  if (a < 16) return true;
+  return r <= BLACK_HOLE_RGB && g <= BLACK_HOLE_RGB && b <= BLACK_HOLE_RGB;
+}
+
+function floodNearBlack(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  sx: number,
+  sy: number,
+): void {
+  const start = (sy * w + sx) * 4;
+  if (!isNearBlack(data[start], data[start + 1], data[start + 2], data[start + 3])) return;
+  const seen = new Uint8Array(w * h);
+  const stack = [sx, sy];
+  while (stack.length) {
+    const y = stack.pop()!;
+    const x = stack.pop()!;
+    if (x < 0 || y < 0 || x >= w || y >= h) continue;
+    const i = y * w + x;
+    if (seen[i]) continue;
+    seen[i] = 1;
+    const p = i * 4;
+    if (!isNearBlack(data[p], data[p + 1], data[p + 2], data[p + 3])) continue;
+    data[p + 3] = 0;
+    stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+  }
+}
+
+/**
+ * Punch solid black (#000) to alpha via flood-fill.
+ * Metal (~50,50,49) stays. Use corners for exterior; center for ring/window holes.
+ */
+export function ensureBlackHollow(
+  scene: Phaser.Scene,
+  srcKey: string,
+  opts: { fromCenter?: boolean } = {},
+): string | null {
+  const destKey = `${srcKey}__blk`;
+  if (scene.textures.exists(destKey) && isUsableTexture(scene, destKey)) return destKey;
+  if (!isUsableTexture(scene, srcKey)) return null;
+  if (scene.textures.exists(destKey)) scene.textures.remove(destKey);
+
+  const srcImg = scene.textures.get(srcKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+  const w = Math.max(1, srcImg.width);
+  const h = Math.max(1, srcImg.height);
+  const work = document.createElement("canvas");
+  work.width = w;
+  work.height = h;
+  const workCtx = work.getContext("2d");
+  if (!workCtx) return null;
+  workCtx.drawImage(srcImg, 0, 0, w, h);
+  const image = workCtx.getImageData(0, 0, w, h);
+  const data = image.data;
+  floodNearBlack(data, w, h, 0, 0);
+  floodNearBlack(data, w, h, w - 1, 0);
+  floodNearBlack(data, w, h, 0, h - 1);
+  floodNearBlack(data, w, h, w - 1, h - 1);
+  if (opts.fromCenter) floodNearBlack(data, w, h, Math.floor(w / 2), Math.floor(h / 2));
+  workCtx.putImageData(image, 0, 0);
+
+  const canvas = scene.textures.createCanvas(destKey, w, h);
+  if (!canvas) return null;
+  canvas.getContext().drawImage(work, 0, 0);
+  canvas.refresh();
+  return destKey;
+}
+
+/** Generator gutters: white grid / plate corners on cell edges. */
+function isSheetGutterWhite(r: number, g: number, b: number, a: number): boolean {
+  if (a < 10) return false;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return max >= 200 && min >= 175 && max - min <= 45;
+}
+
+function punchCellGutters(
+  data: Uint8ClampedArray,
+  imgW: number,
+  x0: number,
+  y0: number,
+  rw: number,
+  rh: number,
+  band: number,
+): void {
+  const x1 = x0 + rw;
+  const y1 = y0 + rh;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      if (x >= x0 + band && x < x1 - band && y >= y0 + band && y < y1 - band) continue;
+      const p = (y * imgW + x) * 4;
+      if (isSheetGutterWhite(data[p], data[p + 1], data[p + 2], data[p + 3])) {
+        data[p + 3] = 0;
+      }
+    }
+  }
+}
+
 function opaqueBoundsIn(
   data: Uint8ClampedArray,
   imgW: number,
@@ -139,7 +240,7 @@ export function ensureFrameStrip(
   const count = Math.max(1, frames);
   const cols = Math.max(1, columns ?? count);
   const rows = Math.max(1, Math.ceil(count / cols));
-  const destKey = `${srcKey}__strip${count}c${cols}_v4`;
+  const destKey = `${srcKey}__strip${count}c${cols}_v5`;
   if (scene.textures.exists(destKey) && isUsableTexture(scene, destKey)) return destKey;
   if (!isUsableTexture(scene, srcKey)) return null;
   if (scene.textures.exists(destKey)) scene.textures.remove(destKey);
@@ -161,6 +262,12 @@ export function ensureFrameStrip(
   workCtx.drawImage(srcImg, 0, 0, usableW, usableH, 0, 0, usableW, usableH);
   const imageData = workCtx.getImageData(0, 0, usableW, usableH);
   keyMagenta(imageData.data);
+  const gutter = Math.min(8, Math.floor(Math.min(cellW, cellH) / 8));
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      punchCellGutters(imageData.data, usableW, col * cellW, row * cellH, cellW, cellH, gutter);
+    }
+  }
   workCtx.putImageData(imageData, 0, 0);
 
   const pad = 2;

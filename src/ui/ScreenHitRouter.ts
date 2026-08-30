@@ -103,6 +103,10 @@ export class ScreenHitRouter {
     this.hits.push({ ...hit, z: hit.z ?? 0 });
   }
 
+  remove(id: string): void {
+    this.hits = this.hits.filter((h) => h.id !== id);
+  }
+
   pick(x: number, y: number): ScreenHit | null {
     let best: ScreenHit | null = null;
     for (const h of this.hits) {

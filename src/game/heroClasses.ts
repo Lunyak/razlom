@@ -18,7 +18,7 @@ export function ensureHeroClass(hero: Hero): HeroClassId {
 }
 
 export function defaultClassForName(name: string): HeroClassId {
-  if (name === "Элиана") return "priest";
+  if (name === "Элиана" || name === "Арсений") return "priest";
   if (name.toLowerCase().includes("развед")) return "scout";
   return "officer";
 }

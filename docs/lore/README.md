@@ -12,6 +12,7 @@
 
 - [`CANON.md`](./CANON.md) — свод канона
 - [`CHANGELOG.md`](./CHANGELOG.md) — журнал фиксаций
+- [`../design/day-night.md`](../design/day-night.md) — шов дня и ночи (механика)
 - [`eschatology.md`](./eschatology.md) — Пришествие, Завет, отсрочка, 1991
 - [`eras.md`](./eras.md) — Часть I, ВОВ-мост, Часть II
 - [`factions/`](./factions/) — лор по фракциям

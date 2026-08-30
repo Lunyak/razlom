@@ -14,7 +14,24 @@ import type { PanelStack } from "./PanelStack";
 const FONT = "Georgia, serif";
 const MONO = "Consolas, monospace";
 const HANDLE = 14;
+const LIST_HIDDEN_KEY = "disciples-like.panelLayout.listHidden";
 export const PANEL_LAYOUT_PIECE = "__panel__";
+
+function loadListHidden(): boolean {
+  try {
+    return localStorage.getItem(LIST_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveListHidden(hidden: boolean): void {
+  try {
+    localStorage.setItem(LIST_HIDDEN_KEY, hidden ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 export type PanelPieceCatalogEntry = { id: string; label: string };
 
@@ -73,6 +90,8 @@ export class PanelLayoutEditor {
   private toolUndoBtn!: Phaser.GameObjects.Text;
   private toolCopyBtn!: Phaser.GameObjects.Text;
   private toolPasteBtn!: Phaser.GameObjects.Text;
+  private toolListBtn!: Phaser.GameObjects.Text;
+  private listHidden = loadListHidden();
 
   constructor(private readonly scene: Phaser.Scene) {
     this.fieldForm.setHandler((values) => this.applyFieldValues(values));
@@ -145,6 +164,10 @@ export class PanelLayoutEditor {
     this.toolUndoBtn = mkToolBtn("[ Отмена ]", () => this.undo());
     this.toolCopyBtn = mkToolBtn("[ Копир ]", () => this.copySelection());
     this.toolPasteBtn = mkToolBtn("[ Встав ]", () => this.pasteSelection());
+    this.toolListBtn = mkToolBtn("[ Список ]", () => this.toggleList());
+    this.toolListBtn.off("pointerout");
+    this.toolListBtn.on("pointerout", () => this.refreshListBtn());
+    this.refreshListBtn();
 
     this.scene.input.keyboard?.on("keydown", (ev: KeyboardEvent) => {
       if (!this.ui.visible || !this.target) return;
@@ -196,6 +219,11 @@ export class PanelLayoutEditor {
 
     this.scene.input.keyboard?.on("keydown-Q", () => this.nudgeLayer(-1));
     this.scene.input.keyboard?.on("keydown-E", () => this.nudgeLayer(1));
+    this.scene.input.keyboard?.on("keydown-L", (ev: KeyboardEvent) => {
+      if (!this.ui.visible || this.fieldForm.isFocused()) return;
+      ev.preventDefault();
+      this.toggleList();
+    });
 
     this.scene.input.keyboard?.on("keydown-OPEN_BRACKET", () => this.nudgeScale(-0.05, 0));
     this.scene.input.keyboard?.on("keydown-CLOSED_BRACKET", () => this.nudgeScale(0.05, 0));
@@ -271,6 +299,18 @@ export class PanelLayoutEditor {
     return false;
   }
 
+  private toggleList(): void {
+    this.listHidden = !this.listHidden;
+    saveListHidden(this.listHidden);
+    this.refreshListBtn();
+    this.layout(this.screenW, this.screenH);
+  }
+
+  private refreshListBtn(): void {
+    this.toolListBtn.setText(this.listHidden ? "[ Список ]" : "[ Скрыть список ]");
+    this.toolListBtn.setColor(this.listHidden ? "#8a7a5a" : "#c9a227");
+  }
+
   isOpen(): boolean {
     return this.ui.visible;
   }
@@ -305,19 +345,23 @@ export class PanelLayoutEditor {
   layout(screenW: number, screenH: number): void {
     this.screenW = screenW;
     this.screenH = screenH;
-    this.panelX = Math.min(520, Math.max(500, screenW - 440));
+    this.panelX = this.listHidden
+      ? Math.max(240, screenW - 280)
+      : Math.min(520, Math.max(500, screenW - 440));
 
     this.ui.setPosition(this.panelX, 100);
     this.titleText.setPosition(0, 0);
+    this.toolListBtn.setPosition(Math.round(this.titleText.width + 16), 0);
 
     const listTop = 28;
     this.listContainer.setPosition(0, listTop);
     this.rebuildList();
+    for (const row of this.listRows.values()) row.setVisible(!this.listHidden);
 
-    const listH = this.listRows.size * 22 + 8;
+    const listH = this.listHidden ? 22 : this.listRows.size * 22 + 8;
     this.layerText.setPosition(0, listTop + listH + 4);
     this.helpText.setPosition(0, listTop + listH + 88);
-    this.helpText.setWordWrapWidth(Math.max(280, screenW - this.panelX - 24));
+    this.helpText.setWordWrapWidth(Math.max(220, screenW - this.panelX - 24));
 
     const toolsY = listTop + listH + 160;
     this.fieldFormY = listTop + listH + 36;
@@ -541,7 +585,8 @@ export class PanelLayoutEditor {
         this.statusNote ? `→ ${this.statusNote}` : "",
         "",
         "Ctrl+C копир · Ctrl+V встав · Ctrl+Z отмена",
-        "поля — X/Y и масштаб · Tab выбор · Esc снять",
+        "L — список элементов · поля — X/Y и масштаб",
+        "Tab выбор · Esc снять",
         "угол рамки — растянуть · стрелки сдвиг · Q/E слой",
         `${undoHint}${clipHint}`,
       ]

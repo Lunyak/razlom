@@ -10,9 +10,11 @@ export const TERRAIN_COLOR: Record<Terrain, number> = {
   grass: 0x3d5c34,
   forest: 0x2a4224,
   road: 0x6b5a3e,
-  water: 0x2a4a6a,
+  water: 0x243028,
   mountain: 0x3a3834,
   mountain_foot: 0x454038,
+  ditch: 0x8a7848,
+  trench: 0x6e5c38,
 };
 
 export const TERRAIN_LABEL: Record<Terrain, string> = {
@@ -22,6 +24,8 @@ export const TERRAIN_LABEL: Record<Terrain, string> = {
   water: "Вода",
   mountain: "Гора",
   mountain_foot: "Подгорье",
+  ditch: "Ров",
+  trench: "Траншея",
 };
 
 const MOUNTAIN_RISE: Record<"mountain" | "mountain_foot", number> = {
@@ -138,6 +142,7 @@ function paintRimRing(
   for (let y = -ring; y < rows + ring; y++) {
     for (let x = -ring; x < cols + ring; x++) {
       if (mapRimDistance(x, y, cols, rows) !== ring) continue;
+      if (x < 0 || y < 0) continue;
       const { sx, sy } = isoTop(x, y, ox, oy);
       gfx.fillPoints(isoDiamondPoints(sx, sy, pad), true);
     }

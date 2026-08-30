@@ -3,11 +3,10 @@ import type { Army, UnitInstance } from "../game/data";
 import { UNIT_DEFS } from "../game/catalog";
 import { glassStyleForFaction } from "../game/factionVisual";
 import { BATTLE_ASSETS, attachOptionalLoadPump, queueAssetPack } from "../game/assetPacks";
-import { FORMATION_FRAME_KEYS, portraitPath, portraitTextureKey } from "../game/portraits";
-import { GLASS_PHOTO_SIZE } from "../game/vintagePortrait";
+import { portraitPath, portraitTextureKey } from "../game/portraits";
 import { BattleActionBar } from "../ui/BattleActionBar";
 import { BattleFocusWindows } from "../ui/BattleFocusWindows";
-import { BattleHud } from "../ui/battleHud";
+import { BattleHud, BattleTurnStrip, BattleWindowFrame, createBattleStage, layoutBattleStage, paintBattleArena, unitsInInitiativeOrder, type BattleStage, BATTLE_STAGE_COLOR } from "../ui/battleHud";
 import {
   BATTLE_LAYOUT_ID,
   BATTLE_PIECE_CATALOG,
@@ -17,13 +16,10 @@ import {
   battleUnitLayoutPos,
   resolveFormationAnchor,
 } from "../ui/battleLayout";
-import {
-  battleFormationBounds,
-  battleFormationCenter,
-} from "../ui/battleFormationLayout";
 import { GlassPhotoFrame } from "../ui/GlassPhotoFrame";
+import { GLASS_PHOTO_SIZE } from "../game/vintagePortrait";
 import { PanelLayoutEditor } from "../ui/panelStack/PanelLayoutEditor";
-import { charcoalInnerBottom, ScreenCharcoalFrame } from "../ui/screenCharcoalFrame";
+import { ScreenCharcoalFrame } from "../ui/screenCharcoalFrame";
 import { onViewResize, viewSize } from "../ui/viewport";
 
 const { portraitSize, frameW, frameH } = GLASS_PHOTO_SIZE;
@@ -39,15 +35,16 @@ export class BattleLayoutTestScene extends Phaser.Scene {
   private playerArmy!: Army;
   private enemyArmy!: Army;
   private unitViews: GlassPhotoFrame[] = [];
-  private formationDecor: Phaser.GameObjects.GameObject[] = [];
   private arenaGfx?: Phaser.GameObjects.Graphics;
   private hud!: BattleHud;
   private actionBar!: BattleActionBar;
   private focusWindows!: BattleFocusWindows;
+  private turnStrip!: BattleTurnStrip;
   private screenFrame!: ScreenCharcoalFrame;
+  private windowFrame?: BattleWindowFrame;
   private layoutEditor!: PanelLayoutEditor;
+  private stage?: BattleStage;
   private battleCx = 640;
-  private formationStartY = 200;
   private nextId = 1;
 
   constructor() {
@@ -64,14 +61,24 @@ export class BattleLayoutTestScene extends Phaser.Scene {
   }
 
   create() {
-    this.cameras.main.setBackgroundColor(0x1c1814);
+    this.cameras.main.setBackgroundColor(BATTLE_STAGE_COLOR);
+    this.stage = createBattleStage(this);
     this.playerArmy = this.makeArmy("ri", MOCK_PLAYER);
     this.enemyArmy = this.makeArmy("ordo", MOCK_ENEMY);
 
     this.hud = new BattleHud(this, { onBag: () => this.hud.setStatus("Сумка (макет)") });
     this.hud.build("БОЙ");
     this.hud.setStatus("Список справа · drag — двигать · угол — масштаб · S — сохранено в браузере");
-    this.hud.setSpellLine("[Q] Святой удар  [W] Исцеление  [I] сумка");
+    this.hud.setSpellLine("[I] сумка");
+    this.hud.setSpells(
+      [
+        { id: "holy_strike", enabled: true },
+        { id: "heal", enabled: true },
+        { id: "lightning", enabled: true },
+        { id: "meteor", enabled: true },
+      ],
+      "holy_strike",
+    );
 
     this.actionBar = new BattleActionBar(this, {
       onSkip: () => this.hud.setStatus("Пропуск (макет)"),
@@ -92,8 +99,16 @@ export class BattleLayoutTestScene extends Phaser.Scene {
       army: this.enemyArmy,
       side: "enemy",
     });
+    this.focusWindows.setSkillState({ enabled: true });
+
+    this.turnStrip = new BattleTurnStrip(this);
+    this.turnStrip.setQueue(
+      unitsInInitiativeOrder(this.playerArmy, this.enemyArmy),
+      this.playerArmy.units[0]?.instanceId ?? null,
+    );
 
     this.screenFrame = new ScreenCharcoalFrame(this);
+    this.windowFrame = new BattleWindowFrame(this);
 
     this.layoutEditor = new PanelLayoutEditor(this);
     this.layoutEditor.mount();
@@ -119,6 +134,7 @@ export class BattleLayoutTestScene extends Phaser.Scene {
       this.layoutEditor?.close();
       this.actionBar?.destroy();
       this.focusWindows?.destroy();
+      this.turnStrip?.destroy();
     });
 
     this.layoutAll();
@@ -151,17 +167,19 @@ export class BattleLayoutTestScene extends Phaser.Scene {
     const { w, h } = viewSize(this);
     const anchor = resolveFormationAnchor(w, h);
     this.battleCx = anchor.battleCx;
-    this.formationStartY = anchor.formationStartY;
 
+    layoutBattleStage(this, this.stage);
     this.rebuildArena();
     this.repositionUnits();
 
     this.hud.layout(w, h);
     this.actionBar.layout();
+    this.turnStrip?.layout();
     const chrome = this.hud.charcoalChrome(w, h);
     this.screenFrame.setChrome(chrome);
     this.screenFrame.layout();
-    this.focusWindows.layout({ restBottom: charcoalInnerBottom(chrome.box) });
+    this.windowFrame?.layout();
+    this.focusWindows.layout({ restBottom: chrome.box.y + chrome.box.h });
     this.layoutEditor.layout(w, h);
   }
 
@@ -170,37 +188,10 @@ export class BattleLayoutTestScene extends Phaser.Scene {
     const arena = battleArenaLayoutRect(w, h);
 
     this.arenaGfx?.destroy();
-    for (const obj of this.formationDecor) obj.destroy();
-    this.formationDecor = [];
 
     const g = this.add.graphics().setDepth(0);
     this.arenaGfx = g;
-    g.fillStyle(0x2a241c, 1);
-    g.fillRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x6b5a3e, 1);
-    g.strokeRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x8a7050, 0.85);
-    g.lineBetween(this.battleCx, arena.y + 16, this.battleCx, arena.y + arena.h - 16);
-
-    for (const side of ["player", "enemy"] as const) {
-      this.drawFormationFrame(side);
-    }
-  }
-
-  private drawFormationFrame(side: "player" | "enemy") {
-    const texKey = side === "player" ? FORMATION_FRAME_KEYS.player : FORMATION_FRAME_KEYS.enemy;
-    const { x, y, w, h } = battleFormationCenter(side, this.battleCx, this.formationStartY);
-    if (this.textures.exists(texKey)) {
-      this.formationDecor.push(this.add.image(x, y, texKey).setDisplaySize(w, h).setDepth(1));
-      return;
-    }
-    const b = battleFormationBounds(side, this.battleCx, this.formationStartY);
-    const gr = this.add.graphics().setDepth(1);
-    gr.fillStyle(0x14100e, 0.82);
-    gr.fillRect(b.x, b.y, b.w, b.h);
-    gr.lineStyle(2, side === "player" ? 0xc9a227 : 0x98a8c0, 0.9);
-    gr.strokeRect(b.x, b.y, b.w, b.h);
-    this.formationDecor.push(gr);
+    paintBattleArena(g, arena, this.battleCx);
   }
 
   private spawnFormations() {
@@ -219,8 +210,8 @@ export class BattleLayoutTestScene extends Phaser.Scene {
         const frame = new GlassPhotoFrame(this, pos.x, pos.y, {
           portraitKey: this.textures.exists(tex) ? tex : undefined,
           portraitSize,
-          frameW,
-          frameH,
+          frameW: frameW,
+          frameH: frameH,
           style,
           hpLabel: `${unit.hp}/${def.maxHp}`,
           hero: unit.isHero,

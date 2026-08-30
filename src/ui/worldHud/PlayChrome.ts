@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { viewSize } from "../viewport";
-import { ScreenHitRouter, rectFromCenter, rectFromXY } from "../ScreenHitRouter";
+import { ScreenHitRouter, rectFromCenter, rectFromXY, type ScreenRect } from "../ScreenHitRouter";
 import { MINIMAP_FRAME, hitsMinimap, minimapLayout, worldGutterW } from "./layout";
 import { paintMinimap, type MinimapPaintModel } from "./minimapPaint";
 
@@ -13,6 +13,8 @@ export type PlayChromeModel = {
   lastMessage: string;
   mapTitle: string;
   objective: string;
+  canContinuePath?: boolean;
+  railMode?: boolean;
 };
 
 export type MinimapModel = MinimapPaintModel;
@@ -37,6 +39,10 @@ export class PlayChrome {
   private mapTitle!: Phaser.GameObjects.Text;
   private objective!: Phaser.GameObjects.Text;
   private msg!: Phaser.GameObjects.Text;
+  private continueBtn!: Phaser.GameObjects.Text;
+  private continueEnabled = false;
+  private railBtn!: Phaser.GameObjects.Text;
+  private railArmed = false;
 
   constructor(private readonly scene: Phaser.Scene) {}
 
@@ -122,6 +128,31 @@ export class PlayChrome {
       .setOrigin(0, 1)
       .setDepth(70)
       .setScrollFactor(0);
+
+    this.continueBtn = this.scene.add
+      .text(worldGutterW() + 16, 0, "Продолжить путь", {
+        fontFamily: "Georgia, serif",
+        fontSize: "15px",
+        color: "#c9a227",
+        stroke: "#1a1008",
+        strokeThickness: 4,
+      })
+      .setOrigin(0, 1)
+      .setDepth(71)
+      .setScrollFactor(0)
+      .setVisible(false);
+
+    this.railBtn = this.scene.add
+      .text(worldGutterW() + 16, 0, "Рельс", {
+        fontFamily: "Georgia, serif",
+        fontSize: "15px",
+        color: "#c9a227",
+        stroke: "#1a1008",
+        strokeThickness: 4,
+      })
+      .setOrigin(0, 1)
+      .setDepth(71)
+      .setScrollFactor(0);
   }
 
   layout(w: number, h: number): void {
@@ -134,6 +165,8 @@ export class PlayChrome {
       Math.max(280, w - gutter - (mm.embedded ? 48 : MINIMAP_FRAME + 48)),
     );
     this.msg.setPosition(gutter + 16, h - 36);
+    this.railBtn.setPosition(gutter + 16, h - 58);
+    this.continueBtn.setPosition(gutter + 16, this.continueEnabled ? h - 80 : h - 58);
 
     const resRight = w - 24;
     const col = (i: number) => resRight - 56 - i * 110;
@@ -163,6 +196,27 @@ export class PlayChrome {
     });
   }
 
+  continueHitRect(): ScreenRect | null {
+    if (!this.continueBtn.visible) return null;
+    const b = this.continueBtn.getBounds();
+    return rectFromXY(b.x - 8, b.y - 4, b.width + 16, b.height + 8);
+  }
+
+  railHitRect(): ScreenRect | null {
+    if (!this.railBtn.visible) return null;
+    const b = this.railBtn.getBounds();
+    return rectFromXY(b.x - 8, b.y - 4, b.width + 16, b.height + 8);
+  }
+
+  paintContinue(hot: boolean): void {
+    this.continueBtn.setColor(hot ? "#f5e6c8" : "#c9a227");
+  }
+
+  paintRail(hot: boolean): void {
+    const armed = this.railArmed;
+    this.railBtn.setColor(hot || armed ? "#f5e6c8" : "#c9a227");
+  }
+
   hitsMinimap(x: number, y: number): boolean {
     const { w, h } = viewSize(this.scene);
     return hitsMinimap(x, y, w, h);
@@ -177,6 +231,15 @@ export class PlayChrome {
     this.mapTitle.setText(model.mapTitle);
     this.objective.setText(model.objective);
     this.msg.setText(model.lastMessage);
+    this.continueEnabled = !!model.canContinuePath;
+    this.continueBtn.setVisible(this.continueEnabled);
+    this.railArmed = !!model.railMode;
+    this.railBtn.setText(this.railArmed ? "Рельс · указ" : "Рельс");
+    this.paintRail(false);
+    const { h } = viewSize(this.scene);
+    const gutter = worldGutterW();
+    this.railBtn.setPosition(gutter + 16, h - 58);
+    this.continueBtn.setPosition(gutter + 16, this.continueEnabled ? h - 80 : h - 58);
   }
 
   redrawMinimap(model: MinimapModel): void {
@@ -205,5 +268,7 @@ export class PlayChrome {
     this.mapTitle.setVisible(visible);
     this.objective.setVisible(visible);
     this.msg.setVisible(visible);
+    this.continueBtn.setVisible(visible && this.continueEnabled);
+    this.railBtn.setVisible(visible);
   }
 }

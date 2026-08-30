@@ -5,6 +5,7 @@ import {
 } from "../../game/city";
 import { GRAVE_RESURRECT_COST, UNIT_DEFS } from "../../game/catalog";
 import { cityCulture, session, type Army, type City } from "../../game/data";
+import { armyCanCarryUnit, isNight } from "../../game/dayNight";
 import { playerFactionOf } from "../../game/playerFaction";
 import { canHireMissionary, formatMissionaryHire } from "../../game/graves";
 import { DOSSIER } from "../chrome";
@@ -23,17 +24,19 @@ export function recruitCheck(
 } {
   if (!city) return { ok: false, reason: "", into: null };
   if (heroInCity && army) {
-    const toArmy = canRecruit(session.state, army, city, defId);
-    if (toArmy.ok) return { ok: true, reason: "", into: "army" };
-    if (toArmy.reason === "Лимит отряда") {
-      const toGar = canRecruitToGarrison(session.state, city, defId);
-      return {
-        ok: toGar.ok,
-        reason: toGar.ok ? "" : toGar.reason,
-        into: toGar.ok ? "garrison" : null,
-      };
+    if (armyCanCarryUnit(army, defId)) {
+      const toArmy = canRecruit(session.state, army, city, defId);
+      if (toArmy.ok) return { ok: true, reason: "", into: "army" };
+      if (toArmy.reason === "Лимит отряда") {
+        const toGar = canRecruitToGarrison(session.state, city, defId);
+        return {
+          ok: toGar.ok,
+          reason: toGar.ok ? "" : toGar.reason,
+          into: toGar.ok ? "garrison" : null,
+        };
+      }
+      return { ok: false, reason: toArmy.reason, into: null };
     }
-    return { ok: false, reason: toArmy.reason, into: null };
   }
   const toGar = canRecruitToGarrison(session.state, city, defId);
   return {
@@ -46,10 +49,15 @@ export function recruitCheck(
 export function renderRecruitTab(p: CityRecruitCtx): void {
   clearRecruitLayer(p);
 
-  const roster = getRecruitRoster(p.city, playerFactionOf(session.state));
-  const hint = p.heroInCity()
-    ? "Наём в отряд (если полон — в гарнизон). Старшие чины — повышение во вкладке Гарнизон"
-    : "Героя нет в городе — наём в гарнизон. Повышение — когда герой стоит в городе";
+  const roster = getRecruitRoster(p.city, playerFactionOf(session.state), session.state);
+  const night = isNight(session.state);
+  const hint = night
+    ? p.heroInCity()
+      ? "Ночь: мистики шва в отряд. Живых нанимают днём"
+      : "Ночь: мистики в гарнизон. Живых — днём"
+    : p.heroInCity()
+      ? "Наём в отряд (если полон — в гарнизон). Старшие чины — повышение во вкладке Гарнизон"
+      : "Героя нет в городе — наём в гарнизон. Повышение — когда герой стоит в городе";
   p.content.add(
     p.scene.add
       .text(0, -195, hint, {
@@ -60,7 +68,9 @@ export function renderRecruitTab(p: CityRecruitCtx): void {
       .setOrigin(0.5),
   );
 
-  spawnMissionaryCard(p, p.cx, p.cy + 16 - 130);
+  if (night && cityCulture(p.city) === "ri") {
+    spawnMissionaryCard(p, p.cx, p.cy + 16 - 130);
+  }
 
   if (roster.length === 0) {
     p.content.add(

@@ -16,6 +16,8 @@ export interface SpellDef {
   /** true = ignores front row rule */
   magic: boolean;
   key: string;
+  /** Phaser texture key for the spiked-ring battle icon. */
+  icon: string;
   /** hits all enemies */
   aoe?: boolean;
   /** Instant cast — no target click (party/self buff). */
@@ -31,6 +33,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     damage: 18,
     magic: true,
     key: "Q",
+    icon: "skill_holy_strike",
   },
   heal: {
     id: "heal",
@@ -40,6 +43,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     heal: 28,
     magic: false,
     key: "W",
+    icon: "skill_heal",
   },
   battle_cry: {
     id: "battle_cry",
@@ -49,6 +53,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     magic: false,
     key: "W",
     instant: true,
+    icon: "skill_battle_cry",
   },
   lightning: {
     id: "lightning",
@@ -58,6 +63,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     damage: 24,
     magic: true,
     key: "E",
+    icon: "skill_lightning",
   },
   focus: {
     id: "focus",
@@ -67,6 +73,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     magic: false,
     key: "E",
     instant: true,
+    icon: "skill_focus",
   },
   meteor: {
     id: "meteor",
@@ -77,6 +84,7 @@ export const SPELLS: Record<SpellId, SpellDef> = {
     magic: true,
     aoe: true,
     key: "R",
+    icon: "skill_meteor",
   },
 };
 
@@ -88,6 +96,11 @@ export const HERO_SPELLS: SpellId[] = [
   "focus",
   "meteor",
 ];
+
+export const SPELL_ICON_ASSETS: [string, string][] = HERO_SPELLS.map((id) => [
+  SPELLS[id].icon,
+  `assets/ui/skills/${SPELLS[id].icon}.png`,
+]);
 
 /** Officer holy strike bonus damage. */
 export const OFFICER_HOLY_BONUS = 8;

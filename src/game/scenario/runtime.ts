@@ -129,6 +129,9 @@ function spawnArmies(scenario: ScenarioDef): Army[] {
         mapId: map.id,
         isPlayer: spawn.isPlayer,
         isNeutral: spawn.isNeutral,
+        isMissionary: spawn.isMissionary,
+        isNightHero: spawn.isNightHero,
+        veil: spawn.veil,
         movesLeft: spawn.movesLeft,
         hero: { ...spawn.hero },
         units: spawn.unitDefIds.map((id) => createUnit(id)),
@@ -176,7 +179,7 @@ function spawnSites(scenario: ScenarioDef): MapSite[] {
 function buildDiscovered(scenario: ScenarioDef): Record<string, boolean[][]> {
   const out: Record<string, boolean[][]> = {};
   for (const map of scenario.maps) {
-    out[map.id] = createDiscovered(map.cols, map.rows);
+    out[map.id] = createDiscovered(map.cols, map.rows, !!map.startExplored);
   }
   return out;
 }
@@ -215,6 +218,14 @@ export function createStateFromScenario(
     scenarioId: scenario.id,
     currentMapId: scenario.startMapId,
     firedPlotIds: [],
+    phase: "day",
+    bloodStains: [],
+    ruinMemory: [],
+    prayedArmyIds: [],
+    ruinScouts: [],
+    cityRitesUsed: [],
+    cityBells: [],
+    rails: [],
   };
 }
 

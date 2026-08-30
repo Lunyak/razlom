@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { menuDirge } from "../../audio/menuDirge";
+import { session } from "../../game/data";
+import { settingsEndTurnLabel } from "../../game/dayNight";
 import {
   cycleDisplayResolution,
   fullscreenLabel,
@@ -35,6 +37,7 @@ export class SettingsOverlay {
   private muteBtn?: Phaser.GameObjects.Text;
   private resValue?: Phaser.GameObjects.Text;
   private fsBtn?: Phaser.GameObjects.Text;
+  private endTurnLabel?: Phaser.GameObjects.Text;
   private readonly actions: SettingsOverlayActions;
 
   constructor(scene: Phaser.Scene, actions: SettingsOverlayActions);
@@ -62,9 +65,11 @@ export class SettingsOverlay {
       this.refreshMusicUi();
       this.refreshVolumeUi();
       this.refreshDisplayUi();
+      this.endTurnLabel?.setText(settingsEndTurnLabel(session.state));
       return;
     }
     this.build();
+    this.endTurnLabel?.setText(settingsEndTurnLabel(session.state));
   }
 
   hide(): void {
@@ -192,7 +197,8 @@ export class SettingsOverlay {
 
     const cityBtn = this.cmdBtn(0, 42, "Город (C)", () => this.actions.onCity?.());
     const bagBtn = this.cmdBtn(0, 92, "Сумка (I)", () => this.actions.onInventory?.());
-    const endBtn = this.cmdBtn(0, 142, "Конец хода (E)", () => this.actions.onEndTurn?.());
+    const endBtn = this.cmdBtn(0, 142, settingsEndTurnLabel(session.state), () => this.actions.onEndTurn?.());
+    this.endTurnLabel = endBtn;
 
     const menuBtn = this.scene.add
       .text(0, 200, "[ В меню ]", {

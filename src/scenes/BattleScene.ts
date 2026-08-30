@@ -20,21 +20,31 @@ import {
 } from "../game/battle";
 import { captureCity, cityAt } from "../game/city";
 import { createGraveFromArmy } from "../game/graves";
+import { addBloodStain } from "../game/dayNight";
 import { resolveMissionOutcome } from "../game/scenario";
 import { grantArtifact, randomLootArtifact } from "../game/artifacts";
-import { POTIONS, SPELLS, UNIT_DEFS, type PotionId, type SpellId } from "../game/catalog";
+import {
+  POTIONS,
+  SPELLS,
+  UNIT_DEFS,
+  UNIT_SKILLS,
+  type PotionId,
+  type SpellId,
+  type UnitSkillId,
+} from "../game/catalog";
 import { rollHeroLoot } from "../game/heroPower";
 import { playerFactionOf } from "../game/playerFaction";
+import { armySupply, supplyCombatMods, type SupplyStatus } from "../game/rails";
 import {
+  canCastSpell,
   castBattleCry,
   castFocus,
   castMeteor,
   castSpellDamage,
   castSpellHeal,
-  formatSpellLine,
-  neutralLoot,
   spellForKey,
   spellsForHero,
+  neutralLoot,
 } from "../game/magic";
 import {
   armyMaxMoves,
@@ -49,6 +59,7 @@ import {
 } from "../game/data";
 import {
   applyOnHitStatuses,
+  applyStatus,
   bleedIntensity,
   burnIntensity,
   clearVolatileStatuses,
@@ -60,12 +71,12 @@ import {
   statusChips,
   tickUnitStatuses,
 } from "../game/status";
-import { FORMATION_FRAME_KEYS, portraitTextureKey } from "../game/portraits";
+import { portraitTextureKey } from "../game/portraits";
 import { BATTLE_ASSETS, attachOptionalLoadPump, queueAssetPack } from "../game/assetPacks";
 import { glassStyleForFaction } from "../game/factionVisual";
 import { GLASS_PHOTO_SIZE } from "../game/vintagePortrait";
 import { BattleActionBar } from "../ui/BattleActionBar";
-import { BattleHud } from "../ui/battleHud";
+import { BattleHud, BattleTurnStrip, BattleWindowFrame, createBattleStage, layoutBattleStage, paintBattleArena, unitsInInitiativeOrder, type BattleStage, BATTLE_STAGE_COLOR } from "../ui/battleHud";
 import { BattleFocusWindows } from "../ui/BattleFocusWindows";
 import { GlassPhotoFrame } from "../ui/GlassPhotoFrame";
 import { InventoryPanel } from "../ui/InventoryPanel";
@@ -76,12 +87,7 @@ import {
 } from "../ui/floatingCombatText";
 import { usePotionOnUnit } from "../game/items";
 import { onViewResize, viewSize } from "../ui/viewport";
-import { ScreenCharcoalFrame, charcoalInnerBottom } from "../ui/screenCharcoalFrame";
-import {
-  FORMATION_START_Y,
-  battleFormationBounds,
-  battleFormationCenter,
-} from "../ui/battleFormationLayout";
+import { ScreenCharcoalFrame } from "../ui/screenCharcoalFrame";
 import {
   battleArenaLayoutRect,
   battleUnitLayoutPos,
@@ -119,8 +125,11 @@ export class BattleScene extends Phaser.Scene {
   private potionMode: PotionId | null = null;
   private inventoryUi!: InventoryPanel;
   private siege = false;
+  private playerSupply!: SupplyStatus;
+  private enemySupply!: SupplyStatus;
   private battleRound = 1;
   private hud!: BattleHud;
+  private turnStrip?: BattleTurnStrip;
   private unitViews = new Map<string, GlassPhotoFrame>();
   private emptySlotViews: GlassPhotoFrame[] = [];
   private endWatch: ReturnType<typeof setInterval> | null = null;
@@ -135,10 +144,10 @@ export class BattleScene extends Phaser.Scene {
   /** Units that chose Defend — take half damage until their next turn. */
   private defending = new Set<string>();
   private battleCx = 640;
-  private formationStartY = FORMATION_START_Y;
   private arenaGfx?: Phaser.GameObjects.Graphics;
-  private formationDecor: Phaser.GameObjects.GameObject[] = [];
   private screenFrame?: ScreenCharcoalFrame;
+  private windowFrame?: BattleWindowFrame;
+  private stage?: BattleStage;
 
   constructor() {
     super("Battle");
@@ -153,6 +162,8 @@ export class BattleScene extends Phaser.Scene {
     this.clearEndWatch();
     this.playerArmy = session.state.armies.find((a) => a.id === data.playerArmyId)!;
     this.enemyArmy = session.state.armies.find((a) => a.id === data.enemyArmyId)!;
+    this.playerSupply = armySupply(session.state, this.playerArmy);
+    this.enemySupply = armySupply(session.state, this.enemyArmy);
     this.siege = !!data.siege;
     this.battleRound = 1;
     this.turnIndex = 0;
@@ -165,7 +176,6 @@ export class BattleScene extends Phaser.Scene {
     this.spellMode = null;
     this.unitViews.clear();
     this.emptySlotViews = [];
-    this.formationDecor = [];
     this.rightInspect = false;
     this.defending.clear();
   }
@@ -176,6 +186,7 @@ export class BattleScene extends Phaser.Scene {
     this.actionEpoch++;
     this.actionBar?.destroy();
     this.focusWindows?.destroy();
+    this.turnStrip?.destroy();
     this.unitInspect?.hide();
     if (this.contextMenuBlock) {
       this.game.canvas.removeEventListener("contextmenu", this.contextMenuBlock);
@@ -200,7 +211,8 @@ export class BattleScene extends Phaser.Scene {
       for (const u of army.units) clearVolatileStatuses(u);
     }
 
-    this.cameras.main.setBackgroundColor(0x1c1814);
+    this.cameras.main.setBackgroundColor(BATTLE_STAGE_COLOR);
+    this.stage = createBattleStage(this);
     this.drawArena();
 
     if (this.siege) {
@@ -213,7 +225,10 @@ export class BattleScene extends Phaser.Scene {
     assignBattleSlots(this.enemyArmy, "enemy");
 
     const title = this.enemyArmy.isNeutral ? "СТЫЧКА" : this.siege ? "ОСАДА" : "БОЙ";
-    this.hud = new BattleHud(this, { onBag: () => this.toggleInventory() });
+    this.hud = new BattleHud(this, {
+      onBag: () => this.toggleInventory(),
+      onSpell: (id) => this.armSpell(id),
+    });
     this.hud.build(title);
     this.refreshSpellUi();
     this.spawnSide(this.playerArmy, "player");
@@ -221,6 +236,8 @@ export class BattleScene extends Phaser.Scene {
     this.drawEmptySlotPlates("player");
     this.drawEmptySlotPlates("enemy");
     this.buildOrder();
+    this.turnStrip = new BattleTurnStrip(this);
+    this.refreshTurnStrip();
     this.setStatus("Атака по цели или кнопки внизу");
     this.refreshTargetHighlights();
 
@@ -231,7 +248,7 @@ export class BattleScene extends Phaser.Scene {
       onQuick: () => this.quickBattle(),
     });
 
-    this.focusWindows = new BattleFocusWindows(this);
+    this.focusWindows = new BattleFocusWindows(this, (id) => this.useUnitSkill(id));
 
     this.inventoryUi = new InventoryPanel(this, {
       onMessage: (msg) => this.setStatus(msg),
@@ -243,14 +260,17 @@ export class BattleScene extends Phaser.Scene {
     this.startEndWatch();
 
     this.unitInspect = new UnitInspectPanel(this);
+    this.windowFrame = new BattleWindowFrame(this);
     this.screenFrame = new ScreenCharcoalFrame(this);
     this.contextMenuBlock = (e) => e.preventDefault();
     this.game.canvas.addEventListener("contextmenu", this.contextMenuBlock);
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown() && this.hud.bagHits.dispatch(pointer)) return;
+      if (pointer.leftButtonDown() && this.hud.spellBar.hits.dispatch(pointer)) return;
       if (this.inventoryUi?.isOpen()) return;
       if (pointer.leftButtonDown() && this.actionBar.handlePointer(pointer)) return;
+      if (pointer.leftButtonDown() && this.focusWindows.handlePointer(pointer)) return;
       if (pointer.rightButtonDown()) {
         this.rightInspect = true;
         this.updateBattleInspect(pointer);
@@ -319,16 +339,18 @@ export class BattleScene extends Phaser.Scene {
     const { w, h } = viewSize(this);
     const anchor = resolveFormationAnchor(w, h);
     this.battleCx = anchor.battleCx;
-    this.formationStartY = anchor.formationStartY;
+    layoutBattleStage(this, this.stage);
     this.drawArena();
     this.hud.layout(w, h);
     this.actionBar?.layout();
+    this.turnStrip?.layout();
     const chrome = this.hud.charcoalChrome(w, h);
-    this.focusWindows?.layout({ restBottom: charcoalInnerBottom(chrome.box) });
+    this.focusWindows?.layout({ restBottom: chrome.box.y + chrome.box.h });
     this.inventoryUi?.layout();
     this.unitInspect?.layout();
     this.screenFrame?.setChrome(chrome);
     this.screenFrame?.layout();
+    this.windowFrame?.layout();
 
     for (const [id, view] of this.unitViews) {
       const side = view.getData("side") as "player" | "enemy" | undefined;
@@ -472,15 +494,53 @@ export class BattleScene extends Phaser.Scene {
       busy: this.busy,
       canFlee: !this.enemyArmy.isNeutral,
     });
+    this.refreshFocusSkill();
+  }
+
+  private refreshFocusSkill() {
+    const cur = this.current();
+    const canUse =
+      !this.busy &&
+      !!cur &&
+      cur.side === "player" &&
+      cur.unit.hp > 0 &&
+      !!UNIT_DEFS[cur.unit.defId]?.skills?.length;
+    this.focusWindows?.setSkillState({ enabled: canUse });
+  }
+
+  private useUnitSkill(id: UnitSkillId) {
+    if (this.leaving || this.busy) return;
+    const cur = this.current();
+    if (!cur || cur.side !== "player" || !(cur.unit.hp > 0)) return;
+    const skill = UNIT_SKILLS[id];
+    const known = UNIT_DEFS[cur.unit.defId]?.skills?.includes(id);
+    if (!skill || !known) return;
+
+    if (skill.applyStatus) {
+      applyStatus(cur.unit, skill.applyStatus.id, skill.applyStatus.turns);
+      this.syncStatusVisuals(cur.unit);
+      this.refreshFocusWindows();
+    }
+
+    this.busy = true;
+    this.refreshActionBar();
+    this.floatOnUnit(cur.unit, skill.name, "block");
+    this.setStatus(`${UNIT_DEFS[cur.unit.defId].name}: ${skill.name}`);
+    this.later(400, () => this.afterAction());
   }
 
   private refreshSpellUi() {
-    const lines = spellsForHero(this.playerArmy.hero)
-      .map((id) => formatSpellLine(id))
-      .join("   ");
-    const potion = this.potionMode ? ` · ЗЕЛЬЕ: ${POTIONS[this.potionMode].name}` : "";
-    const mode = this.spellMode ? ` · АКТИВНО: ${SPELLS[this.spellMode].name}` : "";
-    this.hud.setSpellLine(`${lines}${potion}${mode}   [I] сумка`);
+    const ids = spellsForHero(this.playerArmy.hero);
+    this.hud.setSpells(
+      ids.map((id) => ({
+        id,
+        enabled: canCastSpell(session.state, this.playerArmy.hero, id).ok,
+      })),
+      this.spellMode,
+    );
+    const potion = this.potionMode ? `Зелье: ${POTIONS[this.potionMode].name}` : "";
+    const mode = this.spellMode ? `Активно: ${SPELLS[this.spellMode].name}` : "";
+    this.hud.setSpellLine([potion, mode, "[I] сумка"].filter(Boolean).join(" · "));
   }
 
   private toggleInventory() {
@@ -656,40 +716,12 @@ export class BattleScene extends Phaser.Scene {
     const { w, h } = viewSize(this);
     const arena = battleArenaLayoutRect(w, h);
     this.arenaGfx?.destroy();
-    for (const obj of this.formationDecor) obj.destroy();
-    this.formationDecor = [];
 
     const g = this.add.graphics().setDepth(0);
     this.arenaGfx = g;
-    g.fillStyle(0x2a241c, 1);
-    g.fillRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x6b5a3e, 1);
-    g.strokeRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x8a7050, 0.85);
-    g.lineBetween(this.battleCx, arena.y + 16, this.battleCx, arena.y + arena.h - 16);
-
-    this.drawFormationFrame("player");
-    this.drawFormationFrame("enemy");
+    paintBattleArena(g, arena, this.battleCx);
   }
 
-  private drawFormationFrame(side: "player" | "enemy") {
-    const texKey = side === "player" ? FORMATION_FRAME_KEYS.player : FORMATION_FRAME_KEYS.enemy;
-    const { x, y, w, h } = battleFormationCenter(side, this.battleCx, this.formationStartY);
-    if (this.textures.exists(texKey)) {
-      this.formationDecor.push(this.add.image(x, y, texKey).setDisplaySize(w, h).setDepth(1));
-      return;
-    }
-
-    const b = battleFormationBounds(side, this.battleCx, this.formationStartY);
-    const g = this.add.graphics().setDepth(1);
-    g.fillStyle(0x14100e, 0.82);
-    g.fillRect(b.x, b.y, b.w, b.h);
-    g.lineStyle(2, side === "player" ? 0xc9a227 : 0x98a8c0, 0.9);
-    g.strokeRect(b.x, b.y, b.w, b.h);
-    this.formationDecor.push(g);
-  }
-
-  /** Cover the art's tiny inner windows with empty glass niches. */
   private drawEmptySlotPlates(side: "player" | "enemy") {
     const occupied = new Set(
       (side === "player" ? this.playerArmy : this.enemyArmy).units
@@ -806,7 +838,12 @@ export class BattleScene extends Phaser.Scene {
     const army = side === "player" ? this.playerArmy : this.enemyArmy;
     const unit = army.units.find((u) => u.instanceId === unitId);
     if (!unit || unit.hp <= 0) return undefined;
-    return { unit, army, side };
+    return {
+      unit,
+      army,
+      side,
+      supply: side === "player" ? this.playerSupply : this.enemySupply,
+    };
   }
 
   private updateBattleInspect(pointer: Phaser.Input.Pointer) {
@@ -864,6 +901,18 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     this.focusWindows.clearTarget();
+    this.refreshFocusSkill();
+  }
+
+  private refreshTurnStrip() {
+    if (!this.turnStrip || !this.playerArmy || !this.enemyArmy) return;
+    this.turnStrip.setQueue(
+      unitsInInitiativeOrder(this.playerArmy, this.enemyArmy, {
+        player: this.playerSupply.initiative,
+        enemy: this.enemySupply.initiative,
+      }),
+      this.current()?.unit.instanceId ?? null,
+    );
   }
 
   private onAllyClick(targetId: string) {
@@ -1025,6 +1074,18 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  private supplyOf(side: "player" | "enemy"): SupplyStatus {
+    return side === "player" ? this.playerSupply : this.enemySupply;
+  }
+
+  private unitInitiative(c: Combatant): number {
+    return (
+      (UNIT_DEFS[c.unit.defId]?.initiative ?? 0) +
+      initiativeBonus(c.unit) +
+      this.supplyOf(c.side).initiative
+    );
+  }
+
   private buildOrder() {
     const list: Combatant[] = [];
     for (const u of livingUnits(this.playerArmy)) {
@@ -1033,12 +1094,7 @@ export class BattleScene extends Phaser.Scene {
     for (const u of livingUnits(this.enemyArmy)) {
       list.push({ unit: u, armyId: this.enemyArmy.id, side: "enemy" });
     }
-    list.sort(
-      (a, b) =>
-        UNIT_DEFS[b.unit.defId].initiative +
-        initiativeBonus(b.unit) -
-        (UNIT_DEFS[a.unit.defId].initiative + initiativeBonus(a.unit)),
-    );
+    list.sort((a, b) => this.unitInitiative(b) - this.unitInitiative(a));
     this.order = list;
     this.turnIndex = 0;
     this.ensureLivingTurn();
@@ -1121,6 +1177,7 @@ export class BattleScene extends Phaser.Scene {
     }
     this.refreshTargetHighlights();
     this.refreshFocusWindows();
+    this.refreshTurnStrip();
   }
 
   private setStatus(msg: string) {
@@ -1187,7 +1244,9 @@ export class BattleScene extends Phaser.Scene {
 
     const atkHero = attacker.side === "player" ? this.playerArmy.hero : this.enemyArmy.hero;
     const defHero = attacker.side === "player" ? this.enemyArmy.hero : this.playerArmy.hero;
-    let dmg = calcDamage(attacker.unit, target, 1, atkHero, defHero);
+    const atkMods = supplyCombatMods(attacker.side === "player" ? this.playerSupply : this.enemySupply);
+    const defMods = supplyCombatMods(attacker.side === "player" ? this.enemySupply : this.playerSupply);
+    let dmg = calcDamage(attacker.unit, target, 1, atkHero, defHero, atkMods, defMods);
     const wasDefending = this.defending.has(target.instanceId);
     dmg = applyDefendReduction(dmg, wasDefending);
     applyDamage(target, dmg);
@@ -1212,7 +1271,7 @@ export class BattleScene extends Phaser.Scene {
           msg += " · ответ: промах";
           this.floatOnUnit(attacker.unit, "промах", "miss", 120);
         } else {
-          let counter = calcDamage(target, attacker.unit, 0.5, defHero, atkHero);
+          let counter = calcDamage(target, attacker.unit, 0.5, defHero, atkHero, defMods, atkMods);
           counter = applyDefendReduction(counter, this.defending.has(attacker.unit.instanceId));
           applyDamage(attacker.unit, counter);
           const retalStatuses = applyOnHitStatuses(target, attacker.unit);
@@ -1269,6 +1328,7 @@ export class BattleScene extends Phaser.Scene {
     if (!(unit.hp > 0)) {
       unit.hp = 0;
       view.markDead();
+      this.refreshTurnStrip();
       return;
     }
     if (view.isFallen()) view.revive();
@@ -1279,6 +1339,7 @@ export class BattleScene extends Phaser.Scene {
     );
     this.syncStatusVisuals(unit);
     this.refreshFocusWindows();
+    this.refreshTurnStrip();
   }
 
   private afterAction(fromSpell = false) {
@@ -1444,6 +1505,15 @@ export class BattleScene extends Phaser.Scene {
     this.clearPendingTimers();
 
     try {
+      const fight = this.enemyArmy;
+      if (
+        fight &&
+        Number.isFinite(fight.x) &&
+        Number.isFinite(fight.y) &&
+        typeof fight.mapId === "string"
+      ) {
+        addBloodStain(session.state, fight.x, fight.y, fight.mapId);
+      }
       const isNeutral = !!this.enemyArmy.isNeutral;
 
       if (playerWon) {

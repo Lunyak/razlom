@@ -4,6 +4,7 @@ import type { Terrain } from "../../game/world";
 import { session } from "../../game/data";
 import { SITE_COLOR } from "../../game/sites";
 import { RI_FIELD_KHAKI } from "../../game/factionVisual";
+import { armyVisibleOnMap, isNight } from "../../game/dayNight";
 
 export type MinimapPaintModel = {
   army: Army | undefined;
@@ -29,15 +30,19 @@ export function paintMinimap(
   gfx.fillStyle(0x0a0908, 1);
   gfx.fillRect(mapX, mapY, mapW, mapH);
 
+  const night = !!session.state && isNight(session.state);
+
   for (let y = 0; y < model.rows; y++) {
     for (let x = 0; x < model.cols; x++) {
       if (!model.fog[y]?.[x]) continue;
       const terrain = model.map[y][x];
-      let color = 0x2f4d2f;
-      if (terrain === "water") color = 0x2a4a6a;
-      else if (terrain === "road") color = 0x6b5a3e;
-      else if (terrain === "mountain" || terrain === "mountain_foot") color = 0x666666;
-      else if (terrain === "forest") color = 0x284020;
+      let color = night ? 0x243820 : 0x2f4d2f;
+      if (terrain === "water") color = night ? 0x243428 : 0x2a4a6a;
+      else if (terrain === "road") color = night ? 0x4a3c2c : 0x6b5a3e;
+      else if (terrain === "mountain" || terrain === "mountain_foot") color = night ? 0x3a3832 : 0x666666;
+      else if (terrain === "forest") color = night ? 0x1c2a18 : 0x284020;
+      else if (terrain === "ditch") color = night ? 0x6a5a38 : 0x8a7848;
+      else if (terrain === "trench") color = night ? 0x5a4a30 : 0x6e5c38;
       gfx.fillStyle(color, model.visible[y][x] ? 1 : 0.7);
       gfx.fillRect(
         mapX + x * cellW,
@@ -48,6 +53,11 @@ export function paintMinimap(
     }
   }
 
+  if (night) {
+    gfx.fillStyle(0x1a1410, 0.28);
+    gfx.fillRect(mapX, mapY, mapW, mapH);
+  }
+
   if (opts?.chromeStroke !== false) {
     gfx.lineStyle(1, 0xc9a227, 0.55);
     gfx.strokeRect(mapX + 0.5, mapY + 0.5, mapW - 1, mapH - 1);
@@ -56,7 +66,11 @@ export function paintMinimap(
   for (const site of session.state.sites) {
     if (site.mapId !== session.state.currentMapId) continue;
     if (!model.fog[site.y]?.[site.x]) continue;
-    gfx.fillStyle(SITE_COLOR[site.kind] ?? 0xc9a227, 1);
+    const siteColor =
+      night && site.kind === "mana_shrine"
+        ? 0xd4af37
+        : SITE_COLOR[site.kind] ?? 0xc9a227;
+    gfx.fillStyle(siteColor, 1);
     gfx.fillRect(
       mapX + site.x * cellW + cellW * 0.25,
       mapY + site.y * cellH + cellH * 0.25,
@@ -65,8 +79,47 @@ export function paintMinimap(
     );
   }
 
+  for (const rail of session.state.rails ?? []) {
+    if (rail.mapId !== session.state.currentMapId) continue;
+    if (!model.fog[rail.y]?.[rail.x]) continue;
+    gfx.fillStyle(night ? 0x6a5a48 : 0x8a7a62, 1);
+    gfx.fillRect(
+      mapX + rail.x * cellW + cellW * 0.15,
+      mapY + rail.y * cellH + cellH * 0.35,
+      Math.max(1, cellW * 0.7),
+      Math.max(1, cellH * 0.3),
+    );
+  }
+
+  for (const stain of session.state.bloodStains ?? []) {
+    if (stain.mapId !== session.state.currentMapId) continue;
+    if (!model.fog[stain.y]?.[stain.x]) continue;
+    gfx.fillStyle(night ? 0x5a2218 : 0x4a3428, night ? 0.9 : 0.45);
+    gfx.fillRect(
+      mapX + stain.x * cellW + cellW * 0.2,
+      mapY + stain.y * cellH + cellH * 0.2,
+      Math.max(1, cellW * 0.6),
+      Math.max(1, cellH * 0.6),
+    );
+  }
+
+  if (night) {
+    for (const grave of session.state.graves ?? []) {
+      if (grave.mapId !== session.state.currentMapId) continue;
+      if (!model.fog[grave.y]?.[grave.x]) continue;
+      gfx.fillStyle(0xe8c84a, 0.9);
+      gfx.fillRect(
+        mapX + grave.x * cellW + cellW * 0.3,
+        mapY + grave.y * cellH + cellH * 0.3,
+        Math.max(1, cellW * 0.4),
+        Math.max(1, cellH * 0.4),
+      );
+    }
+  }
+
   for (const otherArmy of session.state.armies) {
     if (otherArmy.mapId !== session.state.currentMapId) continue;
+    if (!armyVisibleOnMap(session.state, otherArmy)) continue;
     if (!model.fog[otherArmy.y]?.[otherArmy.x]) continue;
     const dotX = mapX + otherArmy.x * cellW + cellW / 2;
     const dotY = mapY + otherArmy.y * cellH + cellH / 2;

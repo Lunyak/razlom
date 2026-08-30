@@ -1,4 +1,4 @@
-import { addMountainFoothills, createBlankMap, stampMountains } from "../game/scenario/mapgen";
+import { addMountainFoothills, createBlankMap, stampMountains, stampPolyline } from "../game/scenario/mapgen";
 import type { PlotSequence } from "../game/scenario/plot";
 import type { MapDef, ScenarioDef } from "../game/scenario/types";
 
@@ -14,6 +14,23 @@ function buildFractureTerrain() {
       if (x >= 9 && x <= 11 && y >= 3 && y <= 5) map[y][x] = "water";
     }
   }
+  stampPolyline(map, COLS, ROWS, [
+    [3, 4],
+    [5, 5],
+    [7, 6],
+    [8, 8],
+    [10, 9],
+    [12, 9],
+    [14, 8],
+    [16, 7],
+  ], "trench", ["road", "water", "mountain"]);
+  stampPolyline(map, COLS, ROWS, [
+    [4, 9],
+    [6, 10],
+    [8, 11],
+    [11, 11],
+    [13, 10],
+  ], "ditch", ["road", "water", "mountain", "trench"]);
   stampMountains(map, COLS, ROWS, [
     [0, 0], [1, 0], [0, 1],
     [18, 12], [19, 12], [19, 13],
@@ -29,7 +46,7 @@ const fractureMap: MapDef = {
   rows: ROWS,
   buildTerrain: buildFractureTerrain,
   brief:
-    "1917. Империя трещит. Главное: выбейте штаб Pax (Ordo Lumen) из губернии. Вести со степи и гор — отголосок 1914-го, не отдельная победа.",
+    "1917. Империя трещит. Главное: выбейте штаб Рейха (Ordo Lumen) из губернии. Вести со степи и гор — отголосок 1914-го, не отдельная победа.",
   win: { type: "capture_capital", faction: "ordo" },
   entry: { x: 3, y: 8 },
   cities: [
@@ -44,7 +61,7 @@ const fractureMap: MapDef = {
     },
     {
       id: "c_ordo_hq",
-      name: "Штаб Pax",
+      name: "Штаб Рейха",
       x: 15,
       y: 6,
       faction: "ordo",
@@ -78,7 +95,19 @@ const fractureMap: MapDef = {
       isPlayer: true,
       movesLeft: 3,
       hero: { name: "Волков", level: 2, xp: 40, xpToNext: 120 },
-      unitDefIds: ["squire", "archer", "acolyte", "knight"],
+      unitDefIds: ["squire", "archer", "knight"],
+    },
+    {
+      id: "player_night",
+      faction: "ri",
+      name: "Скит Арсения",
+      x: 4,
+      y: 7,
+      isPlayer: true,
+      isNightHero: true,
+      movesLeft: 0,
+      hero: { name: "Арсений", level: 1, xp: 0, xpToNext: 100, classId: "priest" },
+      unitDefIds: ["incorrupt"],
     },
     {
       id: "ordo_patrol",
@@ -113,6 +142,20 @@ const fractureMap: MapDef = {
       movesLeft: 0,
       hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
       unitDefIds: ["bandit", "bandit", "wolf"],
+      veil: "both",
+    },
+    {
+      id: "neutral_memory_1917",
+      faction: "neutral",
+      name: "Хор Памяти",
+      x: 9,
+      y: 11,
+      isPlayer: false,
+      isNeutral: true,
+      movesLeft: 0,
+      hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
+      unitDefIds: ["ghost", "banshee"],
+      veil: "night",
     },
   ],
 };
@@ -128,7 +171,7 @@ const plot1917Fracture: PlotSequence[] = [
       {
         type: "title",
         title: "Разлом · 1917",
-        text: "Империя трещит. Ordo Lumen ставит штаб Pax прямо в губернии.",
+        text: "Империя трещит. Ordo Lumen ставит штаб Рейха прямо в губернии.",
       },
       {
         type: "narration",
@@ -137,14 +180,14 @@ const plot1917Fracture: PlotSequence[] = [
       {
         type: "dialogue",
         speaker: "Волков",
-        text: "Штаб Pax — цель. Степь и горы ждут вестей с губернии, но победа здесь — взятие штаба, не чужой круг.",
+        text: "Штаб Рейха — цель. Степь и горы ждут вестей с губернии, но победа здесь — взятие штаба, не чужой круг.",
         portrait: "hero_ri",
         faction: "ri",
       },
       { type: "camera", x: 15, y: 6 },
       {
         type: "message",
-        text: "Цель: Штаб Pax. Разлом уже начался.",
+        text: "Цель: Штаб Рейха. Разлом уже начался.",
       },
     ],
   },
@@ -157,7 +200,7 @@ const plot1917Fracture: PlotSequence[] = [
       { type: "camera", x: 15, y: 6 },
       {
         type: "title",
-        title: "Pax сбит",
+        title: "Рейх сбит",
         text: "Штаб Ordo Lumen в губернии взят. Свет Януса меркнет — на время.",
       },
       {
@@ -169,7 +212,7 @@ const plot1917Fracture: PlotSequence[] = [
       },
       {
         type: "message",
-        text: "Штаб Pax захвачен. Сценарий «Разлом · 1917» близок к победе.",
+        text: "Штаб Рейха захвачен. Сценарий «Разлом · 1917» близок к победе.",
       },
     ],
   },
@@ -180,9 +223,9 @@ export const scenario1917Fracture: ScenarioDef = {
   id: "1917-fracture",
   name: "Разлом · 1917",
   eraId: "part1-1914",
-  description: "Империя рушится. Ordo Lumen укрепляет Pax в губернии.",
+  description: "Империя рушится. Ordo Lumen укрепляет Рейх в губернии.",
   brief:
-    "1917. Выбейте Штаб Pax из губернии. Степь и горы — память фронта, не условие победы.",
+    "1917. Выбейте Штаб Рейха из губернии. Степь и горы — память фронта, не условие победы.",
   maps: [fractureMap],
   startMapId: "fracture",
   startingResources: { gold: 9999, mana: 200, people: 99, coal: 24, steel: 12 },

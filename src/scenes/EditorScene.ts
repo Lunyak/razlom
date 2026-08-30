@@ -30,7 +30,7 @@ import type { Terrain } from "../game/world";
 import type { ArmySpawn, CitySpawn } from "../game/scenario/types";
 import { onViewResize, viewH, viewW } from "../ui/viewport";
 import { ScreenCharcoalFrame, type CharcoalChrome } from "../ui/screenCharcoalFrame";
-import { createMapVoid, layoutMapVoid } from "../ui/mapVoid";
+import { createMapVoid, createMapVoidLid, layoutMapVoid, layoutMapVoidLid } from "../ui/mapVoid";
 import { PlotConstructor, PLOT_PANEL_W } from "../ui/PlotConstructor";
 import { PlotPlayer } from "../ui/PlotPlayer";
 import { stampMapToken } from "./world/mapMarkers";
@@ -45,7 +45,16 @@ import {
 
 type Tool = "terrain" | "city" | "site" | "army" | "erase" | "select";
 
-const TERRAINS: Terrain[] = ["grass", "forest", "road", "water", "mountain", "mountain_foot"];
+const TERRAINS: Terrain[] = [
+  "grass",
+  "forest",
+  "road",
+  "water",
+  "mountain",
+  "mountain_foot",
+  "ditch",
+  "trench",
+];
 const FACTIONS: (FactionId | null)[] = [
   "ri",
   "ordo",
@@ -85,8 +94,10 @@ export class EditorScene extends Phaser.Scene {
   private helpText!: Phaser.GameObjects.Text;
   private titleText!: Phaser.GameObjects.Text;
   private toolButtons: Phaser.GameObjects.Text[] = [];
+  private terrainButtons: { obj: Phaser.GameObjects.Text; terrain: Terrain }[] = [];
   private screenFrame?: ScreenCharcoalFrame;
   private mapVoid?: Phaser.GameObjects.TileSprite;
+  private mapVoidLid?: Phaser.GameObjects.Image;
   private terrainLayer!: TerrainLayer;
   private plotUi!: PlotConstructor;
   private plotPlayer!: PlotPlayer;
@@ -116,6 +127,7 @@ export class EditorScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor(0x0a0a0a);
     this.mapVoid = createMapVoid(this);
+    this.mapVoidLid = createMapVoidLid(this);
     this.terrainLayer = new TerrainLayer(this);
     this.overlayGfx = this.add.graphics().setDepth(8);
     this.hudGfx = this.add.graphics().setDepth(20).setScrollFactor(0);
@@ -196,6 +208,8 @@ export class EditorScene extends Phaser.Scene {
   private buildToolbar() {
     for (const b of this.toolButtons) b.destroy();
     this.toolButtons = [];
+    for (const b of this.terrainButtons) b.obj.destroy();
+    this.terrainButtons = [];
 
     const addBtn = (y: number, label: string, fn: () => void, color = "#c9a227") => {
       const t = this.add
@@ -221,12 +235,40 @@ export class EditorScene extends Phaser.Scene {
       return t;
     };
 
-    let y = 300;
+    let y = 248;
     addBtn(y, "[ Террайн ]", () => {
       this.tool = "terrain";
       this.setStatus(`Кисть: ${TERRAIN_LABEL[this.brush]}`);
     });
     y += 22;
+    TERRAINS.forEach((terrain, i) => {
+      const col = i < 4 ? 0 : 1;
+      const row = i % 4;
+      const bx = 16 + col * 118;
+      const by = y + row * 20;
+      const t = this.add
+        .text(bx, by, `${i + 1}  ${TERRAIN_LABEL[terrain]}`, {
+          fontFamily: "Georgia, serif",
+          fontSize: "13px",
+          color: "#c9a227",
+        })
+        .setDepth(22)
+        .setScrollFactor(0)
+        .setInteractive({
+          useHandCursor: true,
+          hitArea: new Phaser.Geom.Rectangle(-4, -2, 110, 18),
+          hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        });
+      t.on("pointerdown", (p: Phaser.Input.Pointer) => {
+        p.event.stopPropagation();
+        this.brush = terrain;
+        this.tool = "terrain";
+        this.setStatus(`Кисть: ${TERRAIN_LABEL[terrain]}`);
+        this.refreshHud();
+      });
+      this.terrainButtons.push({ obj: t, terrain });
+    });
+    y += 88;
     addBtn(y, "[ Город ]", () => {
       this.tool = "city";
       this.setStatus("Клик — город (C цикл фракции)");
@@ -311,7 +353,7 @@ export class EditorScene extends Phaser.Scene {
 
   private onKey(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
-    if (k >= "1" && k <= "6") {
+    if (k >= "1" && k <= "8") {
       this.brush = TERRAINS[Number(k) - 1];
       this.tool = "terrain";
       this.setStatus(`Кисть: ${TERRAIN_LABEL[this.brush]}`);
@@ -597,7 +639,9 @@ export class EditorScene extends Phaser.Scene {
     this.refreshHud();
     this.redrawMap();
     this.plotUi?.layout();
+    const map = this.activeMap();
     layoutMapVoid(this, this.mapVoid);
+    layoutMapVoidLid(this, this.mapVoidLid, map.cols, map.rows, this.ox, this.oy);
     this.screenFrame?.setChrome(this.charcoalChrome());
     this.screenFrame?.layout();
   }
@@ -628,18 +672,22 @@ export class EditorScene extends Phaser.Scene {
       [
         "Порядок карт = цепочка миссий",
         `Инструмент: ${this.tool}`,
-        `Кисть: ${TERRAIN_LABEL[this.brush]} (1–6)`,
+        `Кисть: ${TERRAIN_LABEL[this.brush]}`,
         `Город фракция: ${this.cityFaction ?? "—"} (C)`,
         `Объект: ${SITE_LABEL[this.siteKind]} (O)`,
         `Армия: ${this.armyMode} (A)`,
         `Миссия: ${this.mapIndex + 1}/${this.scenario.maps.length}${startMark}`,
         `Цель: ${map.win?.type ?? this.scenario.win.type}`,
         "",
-        "1–6 террайн  T/C/O/A/E",
-        "[ ] миссии  N новая",
+        "T/C/O/A/E  [ ] миссии",
         "P сюжет  Ctrl+S сохранить",
       ].join("\n"),
     );
+
+    for (const { obj, terrain } of this.terrainButtons) {
+      const on = this.tool === "terrain" && this.brush === terrain;
+      obj.setColor(on ? "#fff0c0" : "#c9a227");
+    }
   }
 
   private redrawMap() {

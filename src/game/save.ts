@@ -1,4 +1,5 @@
-import { createDiscovered, ensureHeroInArmy, session, type FactionId, type GameState } from "./data";
+import { ensureDiscoveredGrid, ensureHeroInArmy, session, type FactionId, type GameState } from "./data";
+import { ensureNightHero } from "./dayNight";
 import { ensureArtifactStash, ensureEquipment } from "./artifacts";
 import { ensureHeroClass } from "./heroClasses";
 import { ensureInventory, startingInventory } from "./items";
@@ -70,6 +71,14 @@ export function applyLoadedState(state: GameState): void {
   if (!state.campaignId) state.campaignId = "part1-1914";
   if (!Array.isArray(state.graves)) state.graves = [];
   if (!Array.isArray(state.firedPlotIds)) state.firedPlotIds = [];
+  if (state.phase !== "day" && state.phase !== "night") state.phase = "day";
+  if (!Array.isArray(state.bloodStains)) state.bloodStains = [];
+  if (!Array.isArray(state.ruinMemory)) state.ruinMemory = [];
+  if (!Array.isArray(state.prayedArmyIds)) state.prayedArmyIds = [];
+  if (!Array.isArray(state.ruinScouts)) state.ruinScouts = [];
+  if (!Array.isArray(state.cityRitesUsed)) state.cityRitesUsed = [];
+  if (!Array.isArray(state.cityBells)) state.cityBells = [];
+  if (!Array.isArray(state.rails)) state.rails = [];
   if (!state.inventory) state.inventory = startingInventory();
   else ensureInventory(state);
   ensureArtifactStash(state);
@@ -80,9 +89,12 @@ export function applyLoadedState(state: GameState): void {
   }
   if (scenario) {
     for (const map of scenario.maps) {
-      if (!state.discoveredByMap[map.id]) {
-        state.discoveredByMap[map.id] = createDiscovered(map.cols, map.rows);
-      }
+      state.discoveredByMap[map.id] = ensureDiscoveredGrid(
+        state.discoveredByMap[map.id],
+        map.cols,
+        map.rows,
+        !!map.startExplored,
+      );
     }
   }
 
@@ -103,6 +115,7 @@ export function applyLoadedState(state: GameState): void {
     ensureEquipment(army.hero);
     ensureHeroInArmy(army);
   }
+  ensureNightHero(state);
   for (const site of state.sites) {
     if (!site.mapId) site.mapId = state.currentMapId;
     if (site.owner) site.owner = migrateFaction(site.owner);

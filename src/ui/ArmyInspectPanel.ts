@@ -7,13 +7,17 @@ import {
   findHeroUnit,
   isHeroAlive,
   livingUnits,
+  nightHeroUnitDefId,
   partyUnits,
+  session,
   type Army,
   type FactionId,
   type UnitInstance,
 } from "../game/data";
 import { armyInfoCardTextureKey, portraitTextureKey } from "../game/portraits";
 import { classLabel } from "../game/heroClasses";
+import { veilPresenceLabel } from "../game/dayNight";
+import { armySupply, formatSupplyStatus } from "../game/rails";
 import { GlassPhotoFrame } from "./GlassPhotoFrame";
 import {
   DOSSIER,
@@ -315,8 +319,17 @@ export class ArmyInspectPanel {
       return lines.join("\n");
     }
 
+    if (army.isNightHero) {
+      lines.push(`ночной герой`);
+      lines.push(`${army.hero.name} · ${classLabel(army.hero)}`);
+      lines.push(`ОД ${army.movesLeft}`);
+      lines.push("ходит ночью · бьётся только с ночным и общим");
+      return lines.join("\n");
+    }
+
     if (army.isNeutral) {
       lines.push("нейтральный отряд");
+      lines.push(veilPresenceLabel(army));
     } else {
       lines.push(`${army.hero.name} · ${classLabel(army.hero)} · ур.${army.hero.level}`);
       const maxMoves = armyMaxMoves(army);
@@ -328,6 +341,7 @@ export class ArmyInspectPanel {
         lines.push(`${alive} живых / ${roster} слотов (лимит ${limit})`);
         if (!isHeroAlive(army) && alive > 0) lines.push("командир пал — 1 ОД");
       }
+      lines.push(formatSupplyStatus(armySupply(session.state, army)));
     }
 
     if (units.length === 0) {
@@ -353,13 +367,23 @@ export class ArmyInspectPanel {
       return lines.join("\n");
     }
 
+    if (army.isNightHero) {
+      lines.push(`Ночной герой · ${faction}`);
+      lines.push(`${army.hero.name} · ${classLabel(army.hero)}`);
+      lines.push(`ОД ${army.movesLeft}`);
+      lines.push("Ходит ночью. Бьётся с ночными и общими отрядами, не с дневными.");
+      return lines.join("\n");
+    }
+
     if (army.isNeutral) {
       lines.push(`Нейтральный отряд`);
       lines.push(faction);
+      lines.push(veilPresenceLabel(army));
       return lines.join("\n");
     }
 
     lines.push(faction);
+    if (!army.isPlayer) lines.push(veilPresenceLabel(army));
     lines.push(`${army.hero.name} · ${classLabel(army.hero)} · ур.${army.hero.level}`);
     const maxMoves = armyMaxMoves(army);
     lines.push(`ОД ${army.movesLeft}/${maxMoves}`);
@@ -371,6 +395,7 @@ export class ArmyInspectPanel {
       lines.push(`${alive} живых / ${roster} слотов (лимит ${limit})`);
       if (!isHeroAlive(army) && alive > 0) lines.push("Командир пал — 1 ОД");
     }
+    lines.push(formatSupplyStatus(armySupply(session.state, army)));
     return lines.join("\n");
   }
 
@@ -387,7 +412,13 @@ export class ArmyInspectPanel {
     this.clearRoster();
     const style = glassStyleForFaction(army.faction);
     const hero = findHeroUnit(army);
-    const heroDefId = hero?.defId ?? (army.faction === "ordo" ? "hero_ordo" : "hero_ri");
+    const heroDefId =
+      hero?.defId ??
+      (army.isNightHero
+        ? nightHeroUnitDefId(army.faction)
+        : army.faction === "ordo"
+          ? "hero_ordo"
+          : "hero_ri");
     const heroKey = resolvePortraitKey(this.scene, heroDefId);
     const heroDead = hero ? !(hero.hp > 0) : false;
     const heroHp = hero

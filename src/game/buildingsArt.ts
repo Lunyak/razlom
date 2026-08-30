@@ -56,7 +56,7 @@ export const BUILDING_ART_LABELS: Record<BuildingId | "capital", string> = {
   aul: "Аул",
   highland_forge: "Горная кузня",
   highland_shrine: "Святилище предков",
-  pax_barracks: "Казармы Pax",
+  pax_barracks: "Казармы Рейха",
   lumen_scriptorium: "Скрипторий Lumen",
   janus_crypt: "Крипта Януса",
   risen_barracks: "Красные казармы",

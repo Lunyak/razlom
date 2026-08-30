@@ -1,5 +1,6 @@
 import { GRAVE_RESURRECT_COST, MISSIONARY_HIRE_COST, UNIT_DEFS } from "./catalog";
 import {
+  armyMaxMoves,
   ensureHeroInArmy,
   livingUnits,
   type Army,
@@ -7,6 +8,8 @@ import {
   type Grave,
   type UnitInstance,
 } from "./data";
+import { findOpenTile, hasTempleAnchor, isNight, isVeilActor } from "./dayNight";
+import { playerFactionOf } from "./playerFaction";
 
 let nextGraveId = 1;
 
@@ -44,6 +47,7 @@ export function createGraveFromArmy(state: GameState, army: Army): Grave {
     hero: { ...army.hero },
     units: army.units.map((u) => ({ ...u })),
     isPlayer: army.isPlayer,
+    isNightHero: army.isNightHero,
   };
   ensureGraves(state).push(grave);
   return grave;
@@ -59,6 +63,7 @@ export function canHireMissionary(
     state.cities.find((c) => c.mapId === state.currentMapId && c.faction === "ri") ??
     state.cities.find((c) => c.faction === "ri");
   if (!city) return { ok: false, reason: "Нет города РИ" };
+  if (!isNight(state)) return { ok: false, reason: "Миссионера нанимают ночью" };
   if (state.armies.some((a) => a.isPlayer && a.isMissionary && livingUnits(a).length > 0)) {
     return { ok: false, reason: "Миссионер уже в поле" };
   }
@@ -122,8 +127,12 @@ export function canResurrectGrave(
   army: Army,
   grave: Grave,
 ): { ok: true; cost: typeof GRAVE_RESURRECT_COST } | { ok: false; reason: string } {
-  if (!army.isMissionary) return { ok: false, reason: "Нужен миссионер" };
-  if (livingUnits(army).length === 0) return { ok: false, reason: "Миссионер мёртв" };
+  if (!isVeilActor(army)) return { ok: false, reason: "Нужен миссионер или ночной герой" };
+  if (livingUnits(army).length === 0) return { ok: false, reason: "Отряд мёртв" };
+  if (!isNight(state)) return { ok: false, reason: "Поднять могилу можно только ночью" };
+  if (!hasTempleAnchor(state, playerFactionOf(state), grave.mapId)) {
+    return { ok: false, reason: "Нет своего храма или святилища на этой карте" };
+  }
   if (army.mapId !== grave.mapId || army.x !== grave.x || army.y !== grave.y) {
     return { ok: false, reason: "Встаньте на могилу" };
   }
@@ -133,7 +142,8 @@ export function canResurrectGrave(
 }
 
 /**
- * Raise a grave: restore the party at full HP; missionary is spent in the rite.
+ * Raise a grave: restore the party at full HP.
+ * A missionary is spent in the rite; the night hero stays on the cell.
  */
 export function resurrectGrave(
   state: GameState,
@@ -154,31 +164,42 @@ export function resurrectGrave(
     return copy;
   });
 
+  const spentMissionary = !!army.isMissionary && !army.isNightHero;
+  const tile = spentMissionary
+    ? { x: grave.x, y: grave.y }
+    : findOpenTile(state, grave.mapId, grave.x, grave.y, army.id);
+
   const restored: Army = {
     id: `restored_${grave.id}`,
     faction: grave.faction,
     name: grave.name,
-    x: grave.x,
-    y: grave.y,
+    x: tile.x,
+    y: tile.y,
     mapId: grave.mapId,
     isPlayer: grave.isPlayer,
-    movesLeft: 3,
+    isNightHero: grave.isNightHero,
+    movesLeft: 0,
     hero: { ...grave.hero },
     units: restoredUnits,
   };
   ensureHeroInArmy(restored);
-  // Full heal everyone after ensure
   for (const u of restored.units) {
     const def = UNIT_DEFS[u.defId];
     if (!def) continue;
     const bonus = u.isHero ? Math.max(0, restored.hero.level - 1) * 8 : 0;
     u.hp = def.maxHp + bonus;
   }
+  if (restored.isNightHero && isNight(state)) {
+    restored.movesLeft = armyMaxMoves(restored);
+  }
 
-  state.armies = state.armies.filter((a) => a.id !== army.id);
+  if (spentMissionary) {
+    state.armies = state.armies.filter((a) => a.id !== army.id);
+  }
   state.armies.push(restored);
   state.graves = ensureGraves(state).filter((g) => g.id !== grave.id);
-  state.selectedArmyId = restored.id;
+  state.selectedArmyId =
+    army.isNightHero && isNight(state) ? army.id : restored.id;
   state.lastMessage = `Могила поднята: ${restored.name} (−${GRAVE_RESURRECT_COST.gold}з, −${GRAVE_RESURRECT_COST.mana}м)`;
   return { ok: true, armyId: restored.id };
 }

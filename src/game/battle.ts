@@ -41,12 +41,19 @@ export function canRetaliate(target: UnitInstance, attacker: UnitInstance): bool
   return target.slot !== undefined && target.slot < 3;
 }
 
+export interface CombatMods {
+  damage?: number;
+  armor?: number;
+}
+
 export function calcDamage(
   attacker: UnitInstance,
   target: UnitInstance,
   multiplier = 1,
   attackingHero?: Hero,
   defendingHero?: Hero,
+  atkMods?: CombatMods,
+  defMods?: CombatMods,
 ): number {
   const aDef = UNIT_DEFS[attacker.defId];
   let dmg = Math.round(aDef.damage * multiplier);
@@ -55,6 +62,7 @@ export function calcDamage(
     dmg += 2;
     if (attackingHero) dmg += heroPower(attackingHero).damage;
   }
+  dmg += atkMods?.damage ?? 0;
   const targetInBack = target.slot !== undefined && target.slot >= 3;
   if (targetInBack && !aDef.ranged) {
     dmg = Math.round(dmg * 0.85);
@@ -64,6 +72,7 @@ export function calcDamage(
   if (target.isHero && defendingHero) {
     dmg = Math.max(1, dmg - heroPower(defendingHero).armor);
   }
+  dmg -= defMods?.armor ?? 0;
   return Math.max(1, dmg);
 }
 

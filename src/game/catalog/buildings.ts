@@ -129,10 +129,10 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   pax_barracks: {
     id: "pax_barracks",
-    name: "Казармы Pax",
+    name: "Казармы Рейха",
     cost: { gold: 80 },
     unlocks: ["ordo_shock"],
-    description: "Гренадер Pax → Ударный гренадер",
+    description: "Гренадер Рейха → Ударный гренадер",
     incomeBonus: { people: 2 },
     culture: "ordo",
   },

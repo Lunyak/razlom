@@ -9,7 +9,7 @@
   healCostPerUnit,
   resurrectCostPerUnit,
 } from "./buildings";
-import { BUILDINGS, FACTION_LABEL, GARRISON_LIMIT, UNIT_DEFS } from "./catalog";
+import { BUILDINGS, FACTION_LABEL, GARRISON_LIMIT, UNIT_DEFS, unitMatchesPhase } from "./catalog";
 import {
   armyUnitCount,
   cityCulture,
@@ -27,7 +27,9 @@ import {
 import { leadershipLimit } from "./battle";
 import { defaultClassForName } from "./heroClasses";
 import { playerFactionOf } from "./playerFaction";
+import { harvestIncomeFactor } from "./rails";
 import { collectOwnedSiteIncome } from "./sites";
+import { armyCanCarryUnit, dayActionsClosed, isNight, phaseOf } from "./dayNight";
 
 export {
   buildOrderFor,
@@ -76,7 +78,9 @@ export function collectIncome(state: GameState): {
     if (culture === "cossack") people += 1;
     else if (culture === "highlander") mana += 1;
   }
-  const sites = collectOwnedSiteIncome(state, playerFactionOf(state));
+  const sites = collectOwnedSiteIncome(state, playerFactionOf(state), (site) =>
+    harvestIncomeFactor(state, site),
+  );
   gold += sites.gold;
   state.gold += gold;
   state.mana += mana;
@@ -91,6 +95,7 @@ export function collectIncome(state: GameState): {
  * Hostile city only if no living army of city.faction remains on that map.
  */
 export function canWalkCaptureCity(state: GameState, city: City): boolean {
+  if (dayActionsClosed(state)) return false;
   if (city.faction === null) return true;
   const pf = playerFactionOf(state);
   if (city.faction === pf) return false;
@@ -118,14 +123,26 @@ export function canRecruit(
   city: City,
   defId: string,
 ): { ok: true } | { ok: false; reason: string } {
+  if (!unitMatchesPhase(defId, phaseOf(state))) {
+    return {
+      ok: false,
+      reason: isNight(state) ? "Обычных нанимают днём" : "Мистических — ночью",
+    };
+  }
   const def = UNIT_DEFS[defId];
   if (!def) return { ok: false, reason: "Неизвестный юнит" };
   const culture = cityCulture(city);
   if (def.faction !== army.faction && def.faction !== culture) {
     return { ok: false, reason: "Чужая фракция" };
   }
+  if (!armyCanCarryUnit(army, defId)) {
+    return {
+      ok: false,
+      reason: army.isNightHero ? "Дневных не берут на шов" : "Мистических берут ночью",
+    };
+  }
 
-  const roster = getRecruitRoster(city, army.faction);
+  const roster = getRecruitRoster(city, army.faction, state);
   if (!roster.includes(defId)) return { ok: false, reason: "Нужно здание" };
 
   const cost = def.recruitCost;
@@ -282,6 +299,12 @@ export function canRecruitToGarrison(
   city: City,
   defId: string,
 ): { ok: true } | { ok: false; reason: string } {
+  if (!unitMatchesPhase(defId, phaseOf(state))) {
+    return {
+      ok: false,
+      reason: isNight(state) ? "Обычных нанимают днём" : "Мистических — ночью",
+    };
+  }
   const pf = playerFactionOf(state);
   const def = UNIT_DEFS[defId];
   if (!def) return { ok: false, reason: "Неизвестный юнит" };
@@ -291,7 +314,7 @@ export function canRecruitToGarrison(
   }
   if (city.faction !== pf) return { ok: false, reason: "Чужой город" };
 
-  const roster = getRecruitRoster(city, pf);
+  const roster = getRecruitRoster(city, pf, state);
   if (!roster.includes(defId)) return { ok: false, reason: "Нужно здание" };
 
   const cost = def.recruitCost;
@@ -322,20 +345,22 @@ export function recruitSmart(
   defId: string,
 ): { ok: true; into: "army" | "garrison" } | { ok: false; reason: string } {
   if (army && army.x === city.x && army.y === city.y && army.mapId === city.mapId) {
-    const toArmy = canRecruit(state, army, city, defId);
-    if (toArmy.ok) {
-      recruitUnit(state, army, city, defId);
-      return { ok: true, into: "army" };
-    }
-    if (toArmy.reason === "Лимит отряда") {
-      const toGar = canRecruitToGarrison(state, city, defId);
-      if (toGar.ok) {
-        recruitToGarrison(state, city, defId);
-        return { ok: true, into: "garrison" };
+    if (armyCanCarryUnit(army, defId)) {
+      const toArmy = canRecruit(state, army, city, defId);
+      if (toArmy.ok) {
+        recruitUnit(state, army, city, defId);
+        return { ok: true, into: "army" };
       }
-      return toGar;
+      if (toArmy.reason === "Лимит отряда") {
+        const toGar = canRecruitToGarrison(state, city, defId);
+        if (toGar.ok) {
+          recruitToGarrison(state, city, defId);
+          return { ok: true, into: "garrison" };
+        }
+        return toGar;
+      }
+      return toArmy;
     }
-    return toArmy;
   }
   const toGar = canRecruitToGarrison(state, city, defId);
   if (!toGar.ok) return toGar;
@@ -374,6 +399,14 @@ export function takeUnitFromCity(
   const gar = ensureGarrison(city);
   const idx = gar.findIndex((u) => u.instanceId === unitInstanceId);
   if (idx < 0) return { ok: false, reason: "Юнит не в гарнизоне" };
+  const waiting = gar[idx];
+  if (!waiting) return { ok: false, reason: "Юнит не в гарнизоне" };
+  if (!armyCanCarryUnit(army, waiting.defId)) {
+    return {
+      ok: false,
+      reason: army.isNightHero ? "Дневных не берут на шов" : "Мистических берут ночью",
+    };
+  }
   const [unit] = gar.splice(idx, 1);
   army.units.push(unit);
   ensureFormationSlots(army);
@@ -410,7 +443,7 @@ export function maybeSpawnOrdoPatrol(state: GameState): string | null {
   state.armies.push({
     id,
     faction: "ordo",
-    name: "Колонна Pax",
+    name: "Колонна Рейха",
     x: capital.x,
     y: capital.y,
     mapId: capital.mapId,
@@ -418,6 +451,7 @@ export function maybeSpawnOrdoPatrol(state: GameState): string | null {
     movesLeft: 2,
     hero: { name: "Штаб Януса", level: 1, xp: 0, xpToNext: 100 },
     units: [createUnit("zombie"), createUnit("skeleton"), createUnit("ghost")],
+    veil: "day",
   });
   return "Из Цитадели Януса вышла новая колонна Ordo Lumen!";
 }
@@ -456,6 +490,7 @@ export function tryHireNewHero(
     state.cities.find((c) => c.mapId === state.currentMapId && c.faction === pf) ??
     state.cities.find((c) => c.isCapital && c.faction === pf);
   if (!capital) return { ok: false, reason: "Нет вашего города на этой карте" };
+  if (dayActionsClosed(state)) return { ok: false, reason: "Найм героя — днём" };
 
   const cost = 120;
   if (state.gold < cost) return { ok: false, reason: "Мало золота на найм героя" };

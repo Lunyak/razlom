@@ -39,6 +39,7 @@ export function isoDirFromStep(from: GridPos, to: GridPos): IsoDir {
  */
 const FRONT_NATIVE: Record<MapArmyTokenKey, "se" | "sw"> = {
   map_army_ri: "sw",
+  map_army_ri_night: "sw",
   map_army_ordo: "se",
   map_army_risen: "se",
   map_army_cossack: "se",
@@ -48,6 +49,7 @@ const FRONT_NATIVE: Record<MapArmyTokenKey, "se" | "sw"> = {
 
 const BACK_NATIVE: Record<MapArmyTokenKey, "nw" | "ne"> = {
   map_army_ri: "nw",
+  map_army_ri_night: "nw",
   map_army_ordo: "ne",
   map_army_risen: "nw",
   map_army_cossack: "nw",
@@ -72,7 +74,7 @@ export function walkVisual(
 }
 
 export function armyWalkStripFor(
-  army: Pick<Army, "faction" | "isNeutral">,
+  army: Pick<Army, "faction" | "isNeutral" | "isNightHero">,
   dir: IsoDir,
 ): { key: string; flip: boolean } {
   const token = armyMapTokenKey(army);

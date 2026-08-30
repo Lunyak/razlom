@@ -9,9 +9,11 @@ import {
   HIGHLANDER_BUILD_ORDER,
   ORDO_BUILD_ORDER,
   RISEN_BUILD_ORDER,
+  unitMatchesPhase,
   type BuildingId,
 } from "./catalog";
 import { cityCulture, type City, type FactionId, type GameState } from "./data";
+import { dayActionsClosed, isNight } from "./dayNight";
 
 export type { BuildingId, BuildingDef } from "./catalog";
 
@@ -28,25 +30,39 @@ export function cityHasBuilding(city: City, id: BuildingId): boolean {
   return city.buildings.includes(id);
 }
 
-export function getRecruitRoster(city: City, _armyFaction: FactionId): string[] {
+function rawRecruitRoster(city: City, night: boolean): string[] {
   const culture = cityCulture(city);
   if (culture === "cossack") {
-    return ["cossack_plastun", "cossack_shooter", "cossack_chaplain"];
+    return night ? ["cossack_chaplain"] : ["cossack_plastun", "cossack_shooter"];
   }
   if (culture === "highlander") {
-    return ["highlander_dzhigit", "highlander_archer", "highlander_shaman"];
+    return night ? ["highlander_shaman"] : ["highlander_dzhigit", "highlander_archer"];
   }
   if (culture === "ordo") {
-    return ["zombie", "ghost", "initiate"];
+    return night ? ["ghost", "initiate"] : ["zombie"];
   }
   if (culture === "risen") {
-    return ["risen_guard", "risen_gunner", "risen_agitator"];
+    return night ? ["risen_agitator"] : ["risen_guard", "risen_gunner"];
   }
   if (culture !== "ri") return [];
 
-  const roster = ["squire", "acolyte", "archer"];
-  if (cityHasBuilding(city, "mage_tower")) roster.push("witch");
-  return roster;
+  if (night) {
+    const roster = ["acolyte"];
+    if (city.isCapital || cityHasBuilding(city, "temple")) roster.push("incorrupt");
+    if (cityHasBuilding(city, "mage_tower")) roster.push("witch");
+    return roster;
+  }
+  return ["squire", "archer"];
+}
+
+export function getRecruitRoster(
+  city: City,
+  _armyFaction: FactionId,
+  state?: GameState,
+): string[] {
+  const night = !!state && isNight(state);
+  const phase = night ? "night" : "day";
+  return rawRecruitRoster(city, night).filter((id) => unitMatchesPhase(id, phase));
 }
 
 export function buildingIncomeBonus(city: City): { gold: number; mana: number; people: number } {
@@ -92,6 +108,7 @@ export function canBuild(
   id: BuildingId,
   playerFaction: FactionId = "ri",
 ): { ok: true } | { ok: false; reason: string } {
+  if (dayActionsClosed(state)) return { ok: false, reason: "Строить — днём" };
   if (city.faction !== playerFaction) return { ok: false, reason: "Не ваш город" };
   if (cityHasBuilding(city, id)) return { ok: false, reason: "Уже построено" };
 

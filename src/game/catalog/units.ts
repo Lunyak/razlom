@@ -1,5 +1,6 @@
 /** Unit stat catalog. Lookup by defId (squire, knight, hero_ri, ...). */
 import type { FactionId } from "./factions";
+import type { UnitSkillId } from "./unitSkills";
 
 export interface UnitDef {
   id: string;
@@ -14,6 +15,10 @@ export interface UnitDef {
   ranged?: boolean;
   /** Ally heal on click (support units). */
   heal?: number;
+  /** Character skills — shown on the focus medallion. */
+  skills?: UnitSkillId[];
+  /** Day troops vs veil mystics. Omitted = day. */
+  veil?: "day" | "night" | "both";
   recruitCost?: { gold: number; mana?: number; people?: number };
 }
 
@@ -52,6 +57,19 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0xe8e0d0,
     recruitCost: { gold: 30, mana: 5, people: 1 },
+    veil: "night",
+  },
+  incorrupt: {
+    id: "incorrupt",
+    name: "Нетленный",
+    faction: "ri",
+    maxHp: 42,
+    damage: 9,
+    initiative: 32,
+    preferredRow: 0,
+    color: 0xc8b890,
+    recruitCost: { gold: 45, mana: 12, people: 1 },
+    veil: "night",
   },
   knight: {
     id: "knight",
@@ -62,6 +80,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 30,
     preferredRow: 0,
     color: 0xb0b8c8,
+    skills: ["guard_charge"],
     recruitCost: { gold: 65, people: 3 },
   },
   witch: {
@@ -75,6 +94,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     color: 0x8a6ab8,
     ranged: true,
     recruitCost: { gold: 50, mana: 10, people: 2 },
+    veil: "night",
   },
   marksman: {
     id: "marksman",
@@ -97,10 +117,11 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 38,
     preferredRow: 1,
     color: 0xd8d0b8,
+    veil: "night",
   },
   zombie: {
     id: "zombie",
-    name: "Гренадер Pax",
+    name: "Гренадер Рейха",
     faction: "ordo",
     maxHp: 45,
     damage: 11,
@@ -120,6 +141,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     color: 0x8a9ab0,
     ranged: true,
     recruitCost: { gold: 45 },
+    veil: "night",
   },
   initiate: {
     id: "initiate",
@@ -131,6 +153,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0x6a5070,
     recruitCost: { gold: 28, mana: 4 },
+    veil: "night",
   },
   skeleton: {
     id: "skeleton",
@@ -154,6 +177,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     color: 0xc8d0e0,
     ranged: true,
     recruitCost: { gold: 48, mana: 8 },
+    veil: "night",
   },
   ordo_shock: {
     id: "ordo_shock",
@@ -175,6 +199,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0x7a8aa0,
     ranged: true,
+    veil: "night",
   },
   ordo_priest: {
     id: "ordo_priest",
@@ -185,6 +210,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 42,
     preferredRow: 1,
     color: 0x5a4060,
+    veil: "night",
   },
   // —— Восставшие ——
   risen_guard: {
@@ -242,6 +268,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0x8a6870,
     recruitCost: { gold: 28, mana: 4, people: 1 },
+    veil: "night",
   },
   risen_commissar: {
     id: "risen_commissar",
@@ -253,6 +280,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 36,
     preferredRow: 1,
     color: 0x785860,
+    veil: "night",
   },
   wolf: {
     id: "wolf",
@@ -314,6 +342,18 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0xe8d5a3,
   },
+  hero_ri_arseniy: {
+    id: "hero_ri_arseniy",
+    name: "Арсений",
+    faction: "ri",
+    maxHp: 48,
+    damage: 7,
+    heal: 24,
+    initiative: 36,
+    preferredRow: 1,
+    color: 0xc8b890,
+    veil: "night",
+  },
   hero_ordo: {
     id: "hero_ordo",
     name: "Офицер Ordo",
@@ -334,6 +374,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0xd0c8a0,
     recruitCost: { gold: 80, mana: 25, people: 1 },
+    veil: "night",
   },
   // —— Казачество ——
   cossack_plastun: {
@@ -390,6 +431,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0xc8b890,
     recruitCost: { gold: 28, mana: 4, people: 1 },
+    veil: "night",
   },
   cossack_starshina: {
     id: "cossack_starshina",
@@ -400,6 +442,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 38,
     preferredRow: 1,
     color: 0xb8a870,
+    veil: "night",
   },
   hero_cossack: {
     id: "hero_cossack",
@@ -466,6 +509,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     preferredRow: 1,
     color: 0xa89070,
     recruitCost: { gold: 30, mana: 6, people: 1 },
+    veil: "night",
   },
   highlander_qadi: {
     id: "highlander_qadi",
@@ -476,6 +520,7 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     initiative: 36,
     preferredRow: 1,
     color: 0x988060,
+    veil: "night",
   },
   hero_highlander: {
     id: "hero_highlander",
@@ -488,3 +533,14 @@ export const UNIT_DEFS: Record<string, UnitDef> = {
     color: 0xb09070,
   },
 };
+
+export type UnitVeil = "day" | "night" | "both";
+
+export function unitVeil(defId: string): UnitVeil {
+  return UNIT_DEFS[defId]?.veil ?? "day";
+}
+
+export function unitMatchesPhase(defId: string, phase: "day" | "night"): boolean {
+  const v = unitVeil(defId);
+  return v === "both" || v === phase;
+}

@@ -26,6 +26,14 @@ export type UpgradeSlot = {
   bottom: number;
 };
 
+export type RiteSlot = {
+  riteId: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
 export type GarrisonSlot = {
   left: number;
   top: number;
@@ -56,6 +64,8 @@ export type CityTabHost = {
   buildSlots: BuildSlot[];
   upgradeLayer: Phaser.GameObjects.GameObject[];
   upgradeSlots: UpgradeSlot[];
+  riteLayer: Phaser.GameObjects.GameObject[];
+  riteSlots: RiteSlot[];
   lastShownBuildings: BuildingId[];
   selectedFormationUnitId: string | null;
   heroInCity(): boolean;
@@ -93,4 +103,9 @@ export type CityGarrisonCtx = Pick<
 export type CityBuildCtx = Pick<
   CityTabHost,
   "scene" | "cx" | "cy" | "city" | "content" | "buildLayer" | "buildSlots" | "lastShownBuildings"
+>;
+
+export type CityRiteCtx = Pick<
+  CityTabHost,
+  "scene" | "cx" | "cy" | "city" | "army" | "content" | "riteLayer" | "riteSlots"
 >;

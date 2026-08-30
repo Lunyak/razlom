@@ -26,6 +26,11 @@ export const VINTAGE_PORTRAIT_LOOK: Record<string, VintagePortraitLook> = {
     paperColor: 0x1a1208,
     portraitAlpha: 1,
   },
+  hero_ri_arseniy: {
+    tint: 0xfff4e8,
+    paperColor: 0x120c08,
+    portraitAlpha: 1,
+  },
   hero_ordo: {
     tint: 0xf0f4ff,
     paperColor: 0x101418,
@@ -44,6 +49,11 @@ export const VINTAGE_PORTRAIT_LOOK: Record<string, VintagePortraitLook> = {
   unit_acolyte: {
     tint: 0xffffff,
     paperColor: 0x1a1410,
+    portraitAlpha: 1,
+  },
+  unit_incorrupt: {
+    tint: 0xfff4e8,
+    paperColor: 0x120c08,
     portraitAlpha: 1,
   },
   unit_knight: {

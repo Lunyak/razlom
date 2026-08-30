@@ -7,8 +7,11 @@ export const CHARCOAL_FRAME_ASSETS: [string, string][] = [];
 /** Layout inset around HUD jewels (minimap). */
 export const CHARCOAL_RAIL_PX = 20;
 
-/** Battle chrome keeps this much room below the molding for the action bar. */
-export const BATTLE_CHROME_BOTTOM = 118;
+/** Max turn-queue cell. Actual band height is the fitted frame, not this cap. */
+export const BATTLE_TURN_STRIP_H = 220;
+
+/** Battle chrome keeps this much room below the molding for the turn strip. */
+export const BATTLE_CHROME_BOTTOM = BATTLE_TURN_STRIP_H;
 
 export type CharcoalBox = { x: number; y: number; w: number; h: number };
 export type CharcoalCornerId = "tl" | "tr" | "bl" | "br";

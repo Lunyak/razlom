@@ -3,6 +3,7 @@ import { POTIONS } from "./catalog";
 import { addPotion, ensureInventory, randomLootPotion } from "./items";
 import { grantArtifact, randomLootArtifact } from "./artifacts";
 import { rollHeroLoot } from "./heroPower";
+import { isNight, rememberRuins } from "./dayNight";
 
 export type SiteKind =
   | "ruins"
@@ -22,6 +23,8 @@ export interface MapSite {
   owner?: FactionId | null;
   /** Old saves: walk-on harvest once per turn. Income is now per-turn from owner. */
   lastHarvestTurn?: number;
+  /** Wayside shrine: first +mana claimed; site stays as a veil anchor. */
+  claimed?: boolean;
 }
 
 export const SITE_LABEL: Record<SiteKind, string> = {
@@ -86,6 +89,7 @@ export function captureSite(site: MapSite, faction: FactionId): boolean {
 export function collectOwnedSiteIncome(
   state: GameState,
   faction: FactionId,
+  factorFor?: (site: MapSite) => number,
 ): { gold: number; coal: number; steel: number } {
   let gold = 0;
   let coal = 0;
@@ -94,9 +98,10 @@ export function collectOwnedSiteIncome(
     if (site.owner !== faction || site.mapId !== state.currentMapId) continue;
     const yield_ = HARVEST[site.kind];
     if (!yield_) continue;
-    gold += yield_.gold ?? 0;
-    coal += yield_.coal ?? 0;
-    steel += yield_.steel ?? 0;
+    const factor = factorFor?.(site) ?? 1;
+    gold += Math.floor((yield_.gold ?? 0) * factor);
+    coal += Math.floor((yield_.coal ?? 0) * factor);
+    steel += Math.floor((yield_.steel ?? 0) * factor);
   }
   return { gold, coal, steel };
 }
@@ -129,6 +134,9 @@ export function visitSite(
   hero: Hero,
   visitorFaction: FactionId,
 ): { message: string; remove: boolean } {
+  if (isNight(state)) {
+    return { message: "Ночью шахты и клады молчат", remove: false };
+  }
   if (HARVEST[site.kind]) return claimHarvestSite(site, visitorFaction);
 
   switch (site.kind) {
@@ -141,6 +149,7 @@ export function visitSite(
         hero.xpToNext = hero.level * 100;
       }
       const extra = maybeArtifactLoot(state, hero);
+      rememberRuins(state, site.x, site.y, site.mapId);
       return { message: `Руины: +45 золота, +25 опыта${extra}`, remove: true };
     }
     case "treasure": {
@@ -156,8 +165,13 @@ export function visitSite(
       };
     }
     case "mana_shrine": {
+      site.owner = visitorFaction;
+      if (site.claimed) {
+        return { message: "Святилище ваше — якорь шва", remove: false };
+      }
+      site.claimed = true;
       state.mana += 20;
-      return { message: "Святилище: +20 маны", remove: true };
+      return { message: "Святилище: +20 маны. Якорь остаётся на карте.", remove: false };
     }
     default:
       return { message: SITE_LABEL[site.kind] ?? "Объект", remove: false };

@@ -30,10 +30,19 @@ export function heroUnitDefId(faction: FactionId, heroName?: string): string {
   return "hero_ri";
 }
 
+export function nightHeroUnitDefId(faction: FactionId): string {
+  if (faction === "ri") return "hero_ri_arseniy";
+  return "missionary";
+}
+
+function commanderDefId(army: Army): string {
+  if (army.isMissionary) return "missionary";
+  if (army.isNightHero) return nightHeroUnitDefId(army.faction);
+  return heroUnitDefId(army.faction, army.hero.name);
+}
+
 export function createHeroUnit(army: Army): UnitInstance {
-  const defId = army.isMissionary
-    ? "missionary"
-    : heroUnitDefId(army.faction, army.hero.name);
+  const defId = commanderDefId(army);
   const unit = createUnit(defId);
   unit.isHero = true;
   const def = UNIT_DEFS[defId];
@@ -60,7 +69,7 @@ export function ensureHeroInArmy(army: Army): void {
   const existing = findHeroUnit(army);
   if (existing) {
     // Saves created before Eliana had her own portrait still use hero_ri.
-    const wanted = heroUnitDefId(army.faction, army.hero.name);
+    const wanted = commanderDefId(army);
     if (existing.defId !== wanted && !army.isMissionary) {
       existing.defId = wanted;
     }
@@ -100,8 +109,27 @@ export function armyUnitCount(army: Army): number {
   return army.units.filter((u) => !u.isHero).length;
 }
 
-export function createDiscovered(cols: number, rows: number): boolean[][] {
-  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => false));
+export function createDiscovered(cols: number, rows: number, revealed = false): boolean[][] {
+  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => revealed));
+}
+
+/** Resize fog to the live map; `revealed` fills the whole grid (art / layout review). */
+export function ensureDiscoveredGrid(
+  grid: boolean[][] | undefined,
+  cols: number,
+  rows: number,
+  revealed = false,
+): boolean[][] {
+  if (revealed) return createDiscovered(cols, rows, true);
+  if (grid && grid.length === rows && (grid[0]?.length ?? 0) === cols) return grid;
+  const next = createDiscovered(cols, rows, false);
+  if (!grid) return next;
+  for (let y = 0; y < Math.min(rows, grid.length); y++) {
+    const row = grid[y];
+    if (!row) continue;
+    for (let x = 0; x < Math.min(cols, row.length); x++) next[y][x] = !!row[x];
+  }
+  return next;
 }
 
 export function isFrontSlot(slot: number): boolean {

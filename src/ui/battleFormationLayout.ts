@@ -6,9 +6,11 @@ export const FORMATION_START_Y = 200;
 const { frameW: UNIT_FRAME_W, frameH: UNIT_FRAME_H } = GLASS_PHOTO_SIZE;
 const ROW_OVERLAP = 3;
 const ROW_STEP = UNIT_FRAME_H - ROW_OVERLAP;
+const COL_STEP = UNIT_FRAME_W - ROW_OVERLAP;
+/** Gap from the battle window's inner lip to the outer column. */
+const EDGE_PAD = 10;
 
-const FRONT_FROM_CENTER = 260;
-const BACK_FROM_CENTER = FRONT_FROM_CENTER + UNIT_FRAME_W - ROW_OVERLAP;
+export type InnerBand = { x: number; w: number };
 
 export interface FormationBounds {
   x: number;
@@ -19,32 +21,37 @@ export interface FormationBounds {
   backX: number;
 }
 
+/** Front / back column centers, pinned to the inner window edge. */
+export function battleFormationColumns(
+  side: "player" | "enemy",
+  inner: InnerBand,
+): { frontX: number; backX: number } {
+  if (side === "player") {
+    const backX = inner.x + EDGE_PAD + UNIT_FRAME_W / 2;
+    return { backX, frontX: backX + COL_STEP };
+  }
+  const backX = inner.x + inner.w - EDGE_PAD - UNIT_FRAME_W / 2;
+  return { backX, frontX: backX - COL_STEP };
+}
+
 export function battleSlotToPos(
   side: "player" | "enemy",
   slot: number,
-  centerX: number,
+  inner: InnerBand,
   startY: number = FORMATION_START_Y,
 ): { x: number; y: number } {
   const isFront = slot < 3;
-  const col = slot % 3;
-  const baseY = startY + col * ROW_STEP;
-  const dist = isFront ? FRONT_FROM_CENTER : BACK_FROM_CENTER;
-
-  if (side === "player") {
-    return { x: centerX - dist, y: baseY };
-  }
-  return { x: centerX + dist, y: baseY };
+  const row = slot % 3;
+  const { frontX, backX } = battleFormationColumns(side, inner);
+  return { x: isFront ? frontX : backX, y: startY + row * ROW_STEP };
 }
 
 export function battleFormationBounds(
   side: "player" | "enemy",
-  centerX: number,
+  inner: InnerBand,
   startY: number = FORMATION_START_Y,
 ): FormationBounds {
-  const frontX =
-    side === "player" ? centerX - FRONT_FROM_CENTER : centerX + FRONT_FROM_CENTER;
-  const backX =
-    side === "player" ? centerX - BACK_FROM_CENTER : centerX + BACK_FROM_CENTER;
+  const { frontX, backX } = battleFormationColumns(side, inner);
   const left = Math.min(frontX, backX) - UNIT_FRAME_W / 2 - 10;
   const right = Math.max(frontX, backX) + UNIT_FRAME_W / 2 + 10;
   const top = startY - UNIT_FRAME_H / 2 - 10;
@@ -54,10 +61,10 @@ export function battleFormationBounds(
 
 export function battleFormationCenter(
   side: "player" | "enemy",
-  centerX: number,
+  inner: InnerBand,
   startY: number = FORMATION_START_Y,
 ): { x: number; y: number; w: number; h: number } {
-  const b = battleFormationBounds(side, centerX, startY);
+  const b = battleFormationBounds(side, inner, startY);
   return { x: b.x + b.w / 2, y: b.y + b.h / 2, w: b.w, h: b.h };
 }
 

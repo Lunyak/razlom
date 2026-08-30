@@ -42,6 +42,7 @@ const PORTRAIT_ALIASES: Record<string, string> = {
 const HERO_PORTRAIT_KEYS = new Set([
   "hero_ri",
   "hero_ri_eliana",
+  "hero_ri_arseniy",
   "hero_ordo",
   "hero_cossack",
   "hero_highlander",
@@ -57,6 +58,7 @@ export function portraitPath(defId: string): string {
   const key = portraitTextureKey(defId);
   if (key === "hero_ri") return "assets/ui/hero_ri_portrait.png";
   if (key === "hero_ri_eliana") return "assets/ui/hero_ri_eliana_portrait.png";
+  if (key === "hero_ri_arseniy") return "assets/ui/hero_ri_arseniy_portrait.png";
   if (key === "hero_ordo") return "assets/ui/hero_ordo_portrait.png";
   if (key === "hero_cossack") return "assets/ui/hero_cossack_portrait.png";
   if (key === "hero_highlander") return "assets/ui/hero_highlander_portrait.png";
@@ -77,6 +79,7 @@ export function hurtPortraitPath(defId: string): string {
   const key = portraitTextureKey(defId);
   if (key === "hero_ri") return "assets/ui/hero_ri_hurt.png";
   if (key === "hero_ri_eliana") return "assets/ui/hero_ri_eliana_hurt.png";
+  if (key === "hero_ri_arseniy") return "assets/ui/hero_ri_arseniy_hurt.png";
   if (key === "hero_ordo") return "assets/ui/hero_ordo_hurt.png";
   if (key === "hero_cossack") return "assets/ui/hero_cossack_hurt.png";
   if (key === "hero_highlander") return "assets/ui/hero_highlander_hurt.png";
@@ -87,12 +90,14 @@ export function hurtPortraitPath(defId: string): string {
 export const PORTRAIT_DEF_IDS = [
   "hero_ri",
   "hero_ri_eliana",
+  "hero_ri_arseniy",
   "hero_ordo",
   "hero_cossack",
   "hero_highlander",
   "squire",
   "archer",
   "acolyte",
+  "incorrupt",
   "knight",
   "witch",
   "missionary",
@@ -117,6 +122,8 @@ export const PORTRAIT_DEF_IDS = [
 export const PORTRAIT_PROMPTS: Record<string, string> = {
   hero_ri: `${STYLE}. ${RI_FIELD_KIT}. Stern bearded Russian Imperial commander, khaki officer tunic, gold shoulder boards`,
   hero_ri_eliana: `${STYLE}. ${RI_FIELD_KIT}. Young Russian Imperial female officer, olive peaked cap, khaki китель, gold shoulder boards, stern gaze`,
+  hero_ri_arseniy: `${STYLE}. Dead RI night hero, bone-white skull, hollow sockets, olive-khaki 1914 фуражка and китель, gold погоны with red piping, burial scarf, soot sepia, no priest cassock, no ice-blue, no text`,
+  incorrupt: `${STYLE}. Incorrupt Orthodox relic-soldier, waxen pale flesh, black cassock, beeswax candle, halo soot, not zombie, not khaki mundir, no ice-blue`,
   hero_ordo: `${STYLE}. Ordo Lumen occult officer, pale face, cold grey-blue high-collar uniform`,
   hero_cossack: `${STYLE_FOLK}. Cossack Ataman, tall papakha, fine cherkeska with silver cartridge loops, saber hilt, commanding bearded steppe warlord`,
   hero_highlander: `${STYLE_THORN}. Caucasian highlander mountain prince, tall papakha, noble cherkeska, ornate kinjal at chest, stern aristocratic face`,
@@ -155,6 +162,8 @@ const UNIT_INFO_CARD_DEFS = [
   "missionary",
   "hero_ri",
   "hero_ri_eliana",
+  "hero_ri_arseniy",
+  "incorrupt",
   "zombie",
   "ghost",
   "initiate",

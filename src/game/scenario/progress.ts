@@ -99,12 +99,13 @@ export function advanceToNextMap(state: GameState, next: MapDef): void {
     army.mapId = next.id;
     army.x = Math.min(next.cols - 1, Math.max(0, entry.x + offset));
     army.y = Math.min(next.rows - 1, Math.max(0, entry.y));
-    army.movesLeft = armyMaxMoves(army);
+    army.movesLeft = army.isNightHero ? 0 : armyMaxMoves(army);
     offset += 1;
   }
 
   state.currentMapId = next.id;
-  state.selectedArmyId = players[0]?.id ?? null;
+  state.selectedArmyId =
+    players.find((a) => !a.isNightHero && !a.isMissionary)?.id ?? players[0]?.id ?? null;
   state.lastMessage =
     next.brief ?? `Миссия выполнена. Следующая карта: ${next.name}`;
 }
@@ -117,11 +118,14 @@ export interface CarriedArmy {
   unitHeroFlags: boolean[];
   unitSlots: Array<number | undefined>;
   isMissionary?: boolean;
+  isNightHero?: boolean;
 }
 
 export function snapshotPlayerArmies(state: GameState): CarriedArmy[] {
+  const rank = (a: Army) => (a.isNightHero ? 1 : a.isMissionary ? 2 : 0);
   return state.armies
     .filter((a) => a.isPlayer && livingUnits(a).length > 0)
+    .sort((a, b) => rank(a) - rank(b))
     .map((a) => ({
       name: a.name,
       hero: { ...a.hero },
@@ -130,6 +134,7 @@ export function snapshotPlayerArmies(state: GameState): CarriedArmy[] {
       unitHeroFlags: a.units.map((u) => !!u.isHero),
       unitSlots: a.units.map((u) => u.slot),
       isMissionary: a.isMissionary,
+      isNightHero: a.isNightHero,
     }));
 }
 

@@ -13,6 +13,27 @@ import type { MapSite } from "./sites";
 
 export type { FactionId, BuildingId, ArtifactId, HeroClassId, Inventory };
 
+/** Calendar day vs veil. `state.turn` is the calendar day, not a half-step. */
+export type DayPhase = "day" | "night";
+
+/** Who this army exists for on the seam. Omitted → inferred (night hero, missionary, else day). */
+export type VeilPresence = "day" | "night" | "both";
+
+/** Map cell mark (blood, ruin memory, night scout). */
+export interface TileMark {
+  mapId: string;
+  x: number;
+  y: number;
+}
+
+/** Laid track. Owned cities are implicit railheads and are not stored here. */
+export interface RailTile {
+  mapId: string;
+  x: number;
+  y: number;
+  owner: FactionId;
+}
+
 export interface UnitInstance {
   instanceId: string;
   defId: string;
@@ -56,6 +77,10 @@ export interface Army {
   isNeutral?: boolean;
   /** Missionary — hires from city, can raise graves */
   isMissionary?: boolean;
+  /** Veil commander — marches at night, camps by day. */
+  isNightHero?: boolean;
+  /** Day-only, night-only, or both faces. Default from flags / day. */
+  veil?: VeilPresence;
 }
 
 /** Fallen party on the map — resurrected by a missionary */
@@ -69,6 +94,7 @@ export interface Grave {
   hero: Hero;
   units: UnitInstance[];
   isPlayer: boolean;
+  isNightHero?: boolean;
 }
 
 export interface City {
@@ -102,6 +128,8 @@ export interface GameState {
   cities: City[];
   sites: MapSite[];
   graves: Grave[];
+  /** Built rail tiles. Missing on old saves — treat as []. */
+  rails?: RailTile[];
   /** Shared party potion bag */
   inventory: Inventory;
   /** Unequipped artifacts */
@@ -116,4 +144,18 @@ export interface GameState {
   currentMapId: string;
   /** Plot sequences already played this run (once: true). */
   firedPlotIds?: string[];
+  /** Day (living war) or night (veil). Defaults to day on old saves. */
+  phase?: DayPhase;
+  /** Battle blood; extra move cost by day until requiem. */
+  bloodStains?: TileMark[];
+  /** Looted ruins still usable as a night well. */
+  ruinMemory?: TileMark[];
+  /** Armies that served in a temple city this night. */
+  prayedArmyIds?: string[];
+  /** Night looks; fog opens around these cells at dawn. */
+  ruinScouts?: TileMark[];
+  /** `${cityId}:${riteId}` — one of each rite per city per night. */
+  cityRitesUsed?: string[];
+  /** City bells; fog opens around these cells at dawn. */
+  cityBells?: TileMark[];
 }

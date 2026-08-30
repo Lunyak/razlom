@@ -252,6 +252,8 @@ export class PanelGalleryTestScene extends Phaser.Scene {
       onCity: noop,
       onInventory: noop,
       onEndTurn: noop,
+      onContinuePath: noop,
+      onToggleRail: noop,
       onPickMapTile: noop,
     });
     this.worldHud.build();

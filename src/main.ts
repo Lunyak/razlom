@@ -6,6 +6,7 @@ import { EditorScene } from "./scenes/EditorScene";
 import { GlassFrameTestScene } from "./scenes/GlassFrameTestScene";
 import { RiBuildingsTestScene } from "./scenes/RiBuildingsTestScene";
 import { BattleMechanicsTestScene } from "./scenes/BattleMechanicsTestScene";
+import { BattleLookTestScene } from "./scenes/BattleLookTestScene";
 import { BattleLayoutTestScene } from "./scenes/BattleLayoutTestScene";
 import { PanelGalleryTestScene } from "./scenes/PanelGalleryTestScene";
 import { bootstrapSession } from "./game/session";
@@ -38,6 +39,7 @@ const config: Phaser.Types.Core.GameConfig = {
     GlassFrameTestScene,
     RiBuildingsTestScene,
     BattleMechanicsTestScene,
+    BattleLookTestScene,
     BattleLayoutTestScene,
     PanelGalleryTestScene,
   ],

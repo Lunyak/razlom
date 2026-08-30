@@ -2,8 +2,8 @@
  * Iso map tokens: cities, sites, graves, army figures.
  * Terrain tiles stay in TerrainLayer.
  */
-import { livingUnits, type Army, type City, type FactionId, type Grave } from "../../game/data";
-import { isoDrawOrder } from "../../game/iso";
+import { livingUnits, session, type Army, type City, type FactionId, type GameState, type Grave } from "../../game/data";
+import { HH, isoDiamondPoints, isoDrawOrder } from "../../game/iso";
 import { SITE_COLOR, SITE_LABEL, isHarvestSite, type MapSite } from "../../game/sites";
 import { ensureCutout } from "../../game/chromaCutout";
 import {
@@ -15,11 +15,21 @@ import {
   siteMapTokenKey,
 } from "../../game/mapTokens";
 import { RI_FIELD_KHAKI } from "../../game/factionVisual";
+import { cityHasTemple, isNight, ruinMemoryAt } from "../../game/dayNight";
 
 export type MarkerIso = (x: number, y: number) => { cx: number; cy: number };
 
 const FOG_TINT = 0x5c574e;
 const UNSEEN_ALPHA = 0.82;
+
+function sessionNight(): boolean {
+  return !!session.state && isNight(session.state);
+}
+
+function tileDiamond(isoCenter: MarkerIso, x: number, y: number): Phaser.Geom.Point[] {
+  const { cx, cy } = isoCenter(x, y);
+  return isoDiamondPoints(cx, cy - HH);
+}
 
 export function cityFillColor(faction: City["faction"]): number {
   if (faction === "ri") return RI_FIELD_KHAKI;
@@ -212,6 +222,11 @@ export function paintCityMarkers(
         .setData("cityToken", true);
     }
 
+    if (sessionNight() && (cityHasTemple(city) || city.isCapital) && inVision) {
+      gfx.lineStyle(1.6, 0xe8c84a, 0.7);
+      gfx.strokeCircle(cx, cy - 4, city.isCapital ? 22 : 18);
+    }
+
     if (inVision) {
       scene.add
         .text(cx, cy + 18, city.name, {
@@ -245,6 +260,14 @@ export function paintSiteMarkers(
     const claimed = isHarvestSite(site.kind) && !!site.owner;
     if (!inVision && !claimed) continue;
     const { cx, cy } = isoCenter(site.x, site.y);
+    const night = sessionNight();
+    if (night && (site.kind === "mana_shrine" || site.kind === "ruins")) {
+      const gold = site.kind === "mana_shrine" ? 0xe8c84a : 0xa89050;
+      gfx.fillStyle(gold, site.kind === "mana_shrine" ? 0.28 : 0.16);
+      gfx.fillCircle(cx, cy + 4, 13);
+      gfx.lineStyle(1.4, gold, inVision ? 0.8 : 0.35);
+      gfx.strokeCircle(cx, cy + 4, 15);
+    }
     const stamped = stampMapToken(
       scene,
       siteMapTokenKey(site.kind),
@@ -295,11 +318,18 @@ export function paintGraveMarkers(
     if (!fog[grave.y]?.[grave.x]) continue;
     const { cx, cy } = isoCenter(grave.x, grave.y);
     const inVision = visible[grave.y][grave.x];
+    const night = sessionNight();
     gfx.fillStyle(0x3a3428, inVision ? 1 : 0.55);
     gfx.fillRect(cx - 10, cy - 18, 20, 22);
     gfx.fillStyle(0x6a6050, inVision ? 1 : 0.55);
     gfx.fillTriangle(cx, cy - 28, cx - 14, cy - 16, cx + 14, cy - 16);
-    gfx.lineStyle(2, 0xc9a227, inVision ? 0.9 : 0.4);
+    if (night) {
+      gfx.fillStyle(0xd4af37, inVision ? 0.22 : 0.1);
+      gfx.fillCircle(cx, cy - 8, 16);
+      gfx.lineStyle(2.6, 0xe8c84a, inVision ? 1 : 0.55);
+    } else {
+      gfx.lineStyle(2, 0xc9a227, inVision ? 0.9 : 0.4);
+    }
     gfx.strokeRect(cx - 10, cy - 18, 20, 22);
     scene.add
       .text(cx, cy + 12, "Могила", {
@@ -310,6 +340,63 @@ export function paintGraveMarkers(
       .setOrigin(0.5, 0)
       .setData("graveLabel", true)
       .setDepth(7);
+  }
+}
+
+/**
+ * Blood tiles: umber/crimson diamond on discovered cells.
+ * Day = faint stain; night = darker crimson (not neon).
+ * Also paints a faint well on ruin-memory cells whose ruins site is gone.
+ */
+export function paintBloodStains(
+  scene: Phaser.Scene,
+  gfx: Phaser.GameObjects.Graphics,
+  state: GameState,
+  fog: boolean[][],
+  visible: boolean[][],
+  isoCenter: MarkerIso,
+): void {
+  void scene;
+  const mapId = state.currentMapId;
+  const night = isNight(state);
+  for (const stain of state.bloodStains ?? []) {
+    if (stain.mapId !== mapId) continue;
+    if (!fog[stain.y]?.[stain.x]) continue;
+    const inVision = !!visible[stain.y]?.[stain.x];
+    const pts = tileDiamond(isoCenter, stain.x, stain.y);
+    gfx.fillStyle(night ? 0x5a2218 : 0x4a3428, night ? (inVision ? 0.72 : 0.4) : inVision ? 0.28 : 0.14);
+    gfx.fillPoints(pts, true);
+    if (night) {
+      gfx.lineStyle(1, 0x3a1810, inVision ? 0.5 : 0.22);
+      gfx.strokePoints(pts, true);
+    }
+  }
+  paintRemovedRuinWells(gfx, state.sites, mapId, fog, visible, isoCenter, state);
+}
+
+function paintRemovedRuinWells(
+  gfx: Phaser.GameObjects.Graphics,
+  sites: MapSite[],
+  mapId: string,
+  fog: boolean[][],
+  visible: boolean[][],
+  isoCenter: MarkerIso,
+  state: GameState = session.state,
+): void {
+  if (!state || !sessionNight()) return;
+  for (const mark of state.ruinMemory ?? []) {
+    if (mark.mapId !== mapId) continue;
+    if (!fog[mark.y]?.[mark.x]) continue;
+    if (sites.some((s) => s.mapId === mapId && s.x === mark.x && s.y === mark.y && s.kind === "ruins")) {
+      continue;
+    }
+    if (!ruinMemoryAt(state, mark.x, mark.y, mapId)) continue;
+    const inVision = !!visible[mark.y]?.[mark.x];
+    const { cx, cy } = isoCenter(mark.x, mark.y);
+    gfx.fillStyle(0x3a3020, inVision ? 0.32 : 0.16);
+    gfx.fillCircle(cx, cy + 4, 9);
+    gfx.lineStyle(1.2, 0xa89050, inVision ? 0.45 : 0.2);
+    gfx.strokeCircle(cx, cy + 4, 11);
   }
 }
 

@@ -1,9 +1,10 @@
 /**
  * Unit upgrade logic. Tables live in catalog/upgrades.ts.
  */
-import { UNIT_DEFS, UNIT_UPGRADES, type UnitUpgradeDef } from "./catalog";
+import { UNIT_DEFS, UNIT_UPGRADES, unitMatchesPhase, type UnitUpgradeDef } from "./catalog";
 import { cityHasBuilding } from "./buildings";
 import { cityCulture, type City, type FactionId, type GameState, type UnitInstance } from "./data";
+import { isNight, phaseOf } from "./dayNight";
 
 export type { UnitUpgradeDef } from "./catalog";
 
@@ -31,6 +32,12 @@ export function canUpgradeUnit(
 ): { ok: true; upgrade: UnitUpgradeDef } | { ok: false; reason: string; upgrade?: UnitUpgradeDef } {
   if (unit.isHero) return { ok: false, reason: "Героя нельзя повысить" };
   if (unit.hp <= 0) return { ok: false, reason: "Сначала воскресите" };
+  if (!unitMatchesPhase(unit.defId, phaseOf(state))) {
+    return {
+      ok: false,
+      reason: isNight(state) ? "Обычных повышают днём" : "Мистических — ночью",
+    };
+  }
 
   const upgrade = upgradeFor(unit.defId);
   if (!upgrade) return { ok: false, reason: "Нет повышения" };

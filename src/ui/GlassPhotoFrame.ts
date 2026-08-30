@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { hurtPortraitTextureKey } from "../game/portraits";
 import { GLASS_PHOTO_SIZE, vintageLookForKey } from "../game/vintagePortrait";
+import { ensureBlackHollow } from "../game/chromaCutout";
 import {
   buildRaceFrame,
   tintRaceFrameHighlight,
@@ -22,6 +23,10 @@ export interface GlassPhotoFrameOptions {
   hpColor?: string;
   hero?: boolean;
   veteran?: boolean;
+  /** Skip race glass when the portrait sits in an iron plate niche. */
+  chrome?: "race" | "none";
+  /** Optional iron-cell overlay (turn strip / niches). */
+  overlayKey?: string;
 }
 
 const HURT_FLASH_COLOR = 0xc01818;
@@ -60,8 +65,10 @@ export class GlassPhotoFrame extends Phaser.GameObjects.Container {
   /** Individual blood drops that fall down the plate. */
   private bleedLayer?: Phaser.GameObjects.Container;
   private bleedDrops: BleedDropParts[] = [];
-  private frameBuilt!: BuiltRaceFrame;
-  private frameRoot!: Phaser.GameObjects.Container;
+  private frameBuilt?: BuiltRaceFrame;
+  private frameRoot?: Phaser.GameObjects.Container;
+  private overlay?: Phaser.GameObjects.Image;
+  private highlightGfx?: Phaser.GameObjects.Graphics;
   private hpText?: Phaser.GameObjects.Text;
   private statusLabel?: Phaser.GameObjects.Text;
   private portraitKey?: string;
@@ -99,23 +106,30 @@ export class GlassPhotoFrame extends Phaser.GameObjects.Container {
     return this.opts.style ?? "ri";
   }
 
+  private chrome(): "race" | "none" {
+    return this.opts.chrome ?? "race";
+  }
+
   private build() {
     const race = this.race();
     const look = vintageLookForKey(this.portraitKey);
     const s = this.portraitSize;
     const hasPortrait = !!(this.portraitKey && this.scene.textures.exists(this.portraitKey));
+    const bare = this.chrome() === "none";
 
-    this.frameBuilt = buildRaceFrame(this.scene, race, {
-      w: this.frameW,
-      h: this.frameH,
-      hero: this.opts.hero,
-      rim: Math.max(10, Math.round(this.frameW * 0.085)),
-    });
-    const paperColor = this.frameBuilt.paperColor;
+    if (!bare) {
+      this.frameBuilt = buildRaceFrame(this.scene, race, {
+        w: this.frameW,
+        h: this.frameH,
+        hero: this.opts.hero,
+        rim: Math.max(10, Math.round(this.frameW * 0.085)),
+      });
+    }
+    const paperColor = this.frameBuilt?.paperColor ?? look.paperColor;
 
     this.photoLayer = this.scene.add.container(0, 0);
     const paperPad = 4;
-    this.paper = this.scene.add.rectangle(0, 0, s + paperPad, s + paperPad, paperColor, 1);
+    this.paper = this.scene.add.rectangle(0, 0, s + paperPad, s + paperPad, paperColor, bare ? 0 : 1);
     this.photoLayer.add(this.paper);
 
     if (hasPortrait && this.portraitKey) {
@@ -148,8 +162,25 @@ export class GlassPhotoFrame extends Phaser.GameObjects.Container {
 
     // Photo under frame
     this.add(this.photoLayer);
-    this.frameRoot = this.frameBuilt.root;
-    this.add(this.frameRoot);
+    if (this.frameBuilt) {
+      this.frameRoot = this.frameBuilt.root;
+      this.add(this.frameRoot);
+    }
+
+    if (this.opts.overlayKey) {
+      const overlayTex =
+        ensureBlackHollow(this.scene, this.opts.overlayKey) ?? this.opts.overlayKey;
+      if (this.scene.textures.exists(overlayTex)) {
+        this.overlay = this.scene.add
+          .image(0, 0, overlayTex)
+          .setDisplaySize(this.frameW, this.frameH)
+          .setName("ironOverlay");
+        this.add(this.overlay);
+      }
+    }
+
+    this.highlightGfx = this.scene.add.graphics().setName("slotHighlight");
+    this.add(this.highlightGfx);
 
     if (this.opts.veteran) {
       const starColor =
@@ -717,7 +748,8 @@ export class GlassPhotoFrame extends Phaser.GameObjects.Container {
   setFrameStyle(style: RaceFrameId, hero = this.opts.hero) {
     this.opts.style = style;
     this.opts.hero = hero;
-    this.frameRoot.destroy(true);
+    if (this.chrome() === "none") return;
+    this.frameRoot?.destroy(true);
     this.frameBuilt = buildRaceFrame(this.scene, style, {
       w: this.frameW,
       h: this.frameH,
@@ -731,7 +763,16 @@ export class GlassPhotoFrame extends Phaser.GameObjects.Container {
   }
 
   setTargetHighlight(mode: "valid" | "front" | "back" | "none") {
-    tintRaceFrameHighlight(this.frameBuilt.highlightTarget, this.frameBuilt.baseTint, mode);
+    if (this.frameBuilt) {
+      tintRaceFrameHighlight(this.frameBuilt.highlightTarget, this.frameBuilt.baseTint, mode);
+    }
+    const g = this.highlightGfx;
+    if (!g) return;
+    g.clear();
+    if (mode === "none" || this.chrome() !== "none") return;
+    const color = mode === "valid" ? 0xc9a227 : 0xa89060;
+    g.lineStyle(2, color, 0.95);
+    g.strokeRect(-this.frameW / 2 + 2, -this.frameH / 2 + 2, this.frameW - 4, this.frameH - 4);
   }
 
   getHitRect(): Phaser.Geom.Rectangle {

@@ -1,4 +1,4 @@
-import type { FactionId, Hero } from "../data";
+import type { FactionId, Hero, VeilPresence } from "../data";
 import type { MapSite } from "../sites";
 import type { Terrain } from "../world";
 import type { BuildingId } from "../catalog";
@@ -41,6 +41,9 @@ export interface ArmySpawn {
   hero: Hero;
   /** Unit def ids */
   unitDefIds: string[];
+  isMissionary?: boolean;
+  isNightHero?: boolean;
+  veil?: VeilPresence;
 }
 
 export type WinCondition =
@@ -69,6 +72,8 @@ export interface MapDef {
   /** Where carried player armies appear when this map starts */
   entry?: { x: number; y: number };
   brief?: string;
+  /** Start with the whole grid discovered (layout / terrain review). */
+  startExplored?: boolean;
 }
 
 export interface ScenarioDef {

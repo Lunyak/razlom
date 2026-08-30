@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { FACTION_LABEL, UNIT_DEFS } from "../game/catalog";
+import { FACTION_LABEL, UNIT_DEFS, UNIT_SKILLS } from "../game/catalog";
 import { type Army, type FactionId, type UnitInstance } from "../game/data";
+import type { SupplyStatus } from "../game/rails";
 import { portraitTextureKey, unitInfoCardTextureKey } from "../game/portraits";
 import { formatStatusLines } from "../game/status";
 import { upgradeFor } from "../game/upgrades";
@@ -30,6 +31,7 @@ export interface UnitInspectContext {
   unit: UnitInstance;
   army: Army;
   side: "player" | "enemy";
+  supply?: SupplyStatus;
 }
 
 function displayName(ctx: UnitInspectContext): string {
@@ -45,7 +47,7 @@ function battleRow(unit: UnitInstance): string {
   return `${row}, позиция ${pos}`;
 }
 
-function damageBreakdown(unit: UnitInstance): { total: number; notes: string[] } {
+function damageBreakdown(unit: UnitInstance, supply?: SupplyStatus): { total: number; notes: string[] } {
   const def = UNIT_DEFS[unit.defId];
   if (!def) return { total: 0, notes: [] };
   const notes: string[] = [`база ${def.damage}`];
@@ -57,6 +59,10 @@ function damageBreakdown(unit: UnitInstance): { total: number; notes: string[] }
   if (unit.isHero) {
     total += 2;
     notes.push("+2 командир");
+  }
+  if (supply?.damage) {
+    total += supply.damage;
+    notes.push(`${supply.damage > 0 ? "+" : ""}${supply.damage} снабжение`);
   }
   return { total, notes };
 }
@@ -319,10 +325,12 @@ export class UnitInspectPanel {
     if (marks.length) lines.push(marks.join(" · "));
     lines.push("");
 
-    const { total, notes } = damageBreakdown(unit);
+    const { total, notes } = damageBreakdown(unit, ctx.supply);
     const dmg = notes.length > 1 ? `${total} (${notes.join(", ")})` : `${total}`;
     const heal = def.heal ? `   лечение ${def.heal}` : "";
-    lines.push(`урон ${dmg}   инициатива ${def.initiative}${heal}`);
+    const init = def.initiative + (ctx.supply?.initiative ?? 0);
+    const armor = ctx.supply?.armor ? `   броня ${ctx.supply.armor}` : "";
+    lines.push(`урон ${dmg}   инициатива ${init}${heal}${armor}`);
     lines.push(`${def.ranged ? "дальний бой" : "ближний бой"}   ${battleRow(unit)}`);
 
     const statusLines = formatStatusLines(unit);
@@ -358,10 +366,15 @@ export class UnitInspectPanel {
     if (unit.veteran) lines.push("Ветеран ★");
     lines.push("");
 
-    const { total, notes } = damageBreakdown(unit);
+    const { total, notes } = damageBreakdown(unit, ctx.supply);
     lines.push(`Урон ${total}${notes.length > 1 ? ` (${notes.join(", ")})` : ""}`);
     if (def.heal) lines.push(`Лечение ${def.heal} (клик по союзнику)`);
-    lines.push(`Инициатива ${def.initiative}`);
+    if (def.skills?.length) {
+      lines.push(`Умение: ${def.skills.map((id) => UNIT_SKILLS[id].name).join(", ")}`);
+    }
+    const init = def.initiative + (ctx.supply?.initiative ?? 0);
+    lines.push(`Инициатива ${init}${ctx.supply?.initiative ? ` (снабжение +${ctx.supply.initiative})` : ""}`);
+    if (ctx.supply?.armor) lines.push(`Броня ${ctx.supply.armor} (снабжение)`);
     lines.push(def.ranged ? "Дальний бой" : "Ближний бой");
     lines.push(battleRow(unit));
     lines.push("");

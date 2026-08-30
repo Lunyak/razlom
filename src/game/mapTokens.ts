@@ -29,6 +29,7 @@ export type MapCityTokenKey =
 
 export type MapArmyTokenKey =
   | "map_army_ri"
+  | "map_army_ri_night"
   | "map_army_ordo"
   | "map_army_risen"
   | "map_army_cossack"
@@ -72,6 +73,7 @@ export const MAP_TOKEN_KEYS: MapTokenKey[] = [
   "map_city_highlander",
   "map_city_neutral",
   "map_army_ri",
+  "map_army_ri_night",
   "map_army_ordo",
   "map_army_risen",
   "map_army_cossack",
@@ -111,7 +113,10 @@ export function cityMapTokenHeight(city: Pick<City, "isCapital">): number {
   return city.isCapital ? MAP_CITY_CAPITAL_HEIGHT : MAP_CITY_HEIGHT;
 }
 
-export function armyMapTokenKey(army: Pick<Army, "faction" | "isNeutral">): MapArmyTokenKey {
+export function armyMapTokenKey(
+  army: Pick<Army, "faction" | "isNeutral" | "isNightHero">,
+): MapArmyTokenKey {
+  if (army.isNightHero && army.faction === "ri") return "map_army_ri_night";
   if (army.isNeutral) return "map_army_neutral";
   return ARMY_BY_FACTION[army.faction] ?? "map_army_neutral";
 }
@@ -139,6 +144,7 @@ export const MAP_TOKEN_PROMPTS: Record<MapTokenKey, string> = {
   map_city_highlander: `${MAP_TOKEN_STYLE}. Caucasian mountain aul, stacked stone houses, slate roofs, austere bone-ash, no snow, no ice-blue`,
   map_city_neutral: `${MAP_TOKEN_STYLE}. Humble Galicia hamlet, two cottages and a barn, brass tintype, unornamented`,
   map_army_ri: `${MAP_TOKEN_STYLE}. Single RI officer in olive-khaki 1914 китель, gold погоны, olive фуражка, saber, not crimson, not British scarlet`,
+  map_army_ri_night: `${MAP_TOKEN_STYLE}. Flying dead RI spirit, bone-white skull, khaki фуражка and китель, gold погоны, no legs, soot vapor trail, no ground plane, no ice-blue`,
   map_army_ordo: `${MAP_TOKEN_STYLE}. Single Ordo occult officer, ash-grey iron collar uniform, no ice-blue`,
   map_army_risen: `${MAP_TOKEN_STYLE}. Single undead WW1 soldier, torn muddy uniform, mildew grey-green`,
   map_army_cossack: `${MAP_TOKEN_STYLE}. Cossack ataman, tall papakha, cherkeska with cartridge loops, saber, folk earth sepia`,

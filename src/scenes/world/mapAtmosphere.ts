@@ -3,7 +3,13 @@
  * Procedural canvas textures — no extra assets. Cream/sepia only (not frost).
  */
 import Phaser from "phaser";
+import { session } from "../../game/data";
+import { isNight } from "../../game/dayNight";
 import { isoCenter, isoMapBounds, mapRimDistance } from "../../game/iso";
+
+/** Warm soot multiply — wet collodion, never ice-blue. */
+const NIGHT_TINT = 0x3a322c;
+const NIGHT_FOG_ALPHA = 1.55;
 
 const CLOUD_DEPTH = 7.65;
 const FOG_DEPTH = 2.18;
@@ -48,6 +54,7 @@ export class MapAtmosphere {
   private wrap: WrapBox = { left: 0, top: 0, right: 0, bottom: 0, w: 1, h: 1 };
   private layoutKey = "";
   private elapsed = 0;
+  private night = false;
 
   constructor(private readonly scene: Phaser.Scene) {
     ensureWeatherTextures(scene);
@@ -57,9 +64,18 @@ export class MapAtmosphere {
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
   }
 
+  /** Wet-collodion night: multiply soot tint, denser ground fog. Not frost. */
+  setNight(night: boolean): void {
+    this.night = night;
+    this.applyNightLook();
+  }
+
   layout(cols: number, rows: number, ox: number, oy: number): void {
     const key = `${cols}x${rows}:${Math.round(ox)}:${Math.round(oy)}`;
-    if (key === this.layoutKey && this.sprites.length > 0) return;
+    if (key === this.layoutKey && this.sprites.length > 0) {
+      this.syncPhaseFromSession();
+      return;
+    }
     this.layoutKey = key;
 
     const bounds = isoMapBounds(cols, rows, ox, oy);
@@ -81,6 +97,21 @@ export class MapAtmosphere {
     this.spawnBanks(cols, rows, ox, oy, rand);
     this.spawnWisps(cols, rows, ox, oy, rand);
     this.spawnClouds(cols, rows, ox, oy, rand);
+    this.syncPhaseFromSession();
+  }
+
+  private syncPhaseFromSession(): void {
+    const state = session.state;
+    if (!state) return;
+    this.setNight(isNight(state));
+  }
+
+  private applyNightLook(): void {
+    for (const s of this.sprites) {
+      if (!s.img.active) continue;
+      if (this.night) s.img.setTint(NIGHT_TINT);
+      else s.img.clearTint();
+    }
   }
 
   destroy(): void {
@@ -222,12 +253,14 @@ export class MapAtmosphere {
 
   private tick(_time: number, delta: number): void {
     if (this.sprites.length === 0) return;
+    this.syncPhaseFromSession();
     this.elapsed += delta / 1000;
     const t = this.elapsed;
     for (const s of this.sprites) {
       if (!s.img.active) continue;
       const breathe = 0.82 + 0.18 * Math.sin(t * s.pulse + s.phase);
-      s.img.setAlpha(s.baseAlpha * breathe);
+      const fogLift = this.night && s.kind !== "cloud" ? NIGHT_FOG_ALPHA : 1;
+      s.img.setAlpha(Math.min(0.88, s.baseAlpha * breathe * fogLift));
       if (s.kind === "cloud") {
         s.img.x += s.vx * (delta / 1000);
         s.img.y += s.vy * (delta / 1000);

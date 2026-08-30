@@ -1,22 +1,108 @@
-import { addMountainFoothills, createBlankMap, stampMountains } from "../game/scenario/mapgen";
+import {
+  addMountainFoothills,
+  createBlankMap,
+  stampDisk,
+  stampMountains,
+  stampPolyline,
+  stampTerrain,
+} from "../game/scenario/mapgen";
 import type { PlotSequence } from "../game/scenario/plot";
 import type { CampaignDef, MapDef, ScenarioDef } from "../game/scenario/types";
 
-const FRONTIER_COLS = 32;
-const FRONTIER_ROWS = 20;
+const FRONTIER_COLS = 48;
+const FRONTIER_ROWS = 32;
 
 function buildFrontierTerrain() {
   const cols = FRONTIER_COLS;
   const rows = FRONTIER_ROWS;
-  const midY = Math.floor(rows / 2);
   const map = createBlankMap(cols, rows, "grass");
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if ((x + y) % 7 === 0) map[y][x] = "forest";
-      if (y === midY && x >= 3 && x <= cols - 4) map[y][x] = "road";
-      if (x >= 7 && x <= 9 && y >= 2 && y <= 4) map[y][x] = "water";
+
+  stampDisk(map, cols, rows, 8, 3, 2, "forest");
+  stampDisk(map, cols, rows, 11, 13, 2, "forest");
+  stampDisk(map, cols, rows, 5, 17, 2, "forest");
+  stampDisk(map, cols, rows, 18, 5, 1, "forest");
+  stampDisk(map, cols, rows, 27, 26, 3, "forest");
+  const eastWood: [number, number][] = [];
+  for (let y = 7; y <= 23; y++) {
+    for (let x = 36; x <= 46; x++) {
+      if ((x + y * 3) % 4 !== 1) eastWood.push([x, y]);
     }
   }
+  stampTerrain(map, cols, rows, eastWood, "forest");
+
+  stampPolyline(map, cols, rows, [
+    [1, 10],
+    [22, 10],
+    [30, 12],
+    [38, 12],
+    [45, 14],
+  ], "road");
+  stampPolyline(map, cols, rows, [
+    [4, 10],
+    [4, 22],
+    [8, 26],
+    [14, 27],
+  ], "road");
+  stampPolyline(map, cols, rows, [
+    [22, 10],
+    [24, 16],
+    [26, 20],
+  ], "road");
+
+  stampPolyline(map, cols, rows, [
+    [8, 2],
+    [9, 3],
+    [9, 5],
+    [10, 6],
+    [10, 8],
+    [11, 9],
+    [11, 11],
+    [12, 13],
+    [13, 15],
+    [14, 17],
+    [15, 19],
+    [16, 21],
+  ], "trench", ["road", "water", "mountain"]);
+  stampPolyline(map, cols, rows, [
+    [6, 4],
+    [7, 6],
+    [7, 8],
+    [8, 10],
+    [8, 12],
+    [9, 14],
+    [10, 16],
+  ], "ditch", ["road", "water", "mountain", "trench"]);
+  stampPolyline(map, cols, rows, [
+    [13, 2],
+    [14, 4],
+    [14, 6],
+    [15, 7],
+    [16, 9],
+    [16, 11],
+    [17, 13],
+    [18, 15],
+    [19, 17],
+  ], "trench", ["road", "water", "mountain"]);
+
+  stampDisk(map, cols, rows, 8, 3, 1, "water", []);
+  stampPolyline(map, cols, rows, [
+    [12, 1],
+    [14, 4],
+    [16, 7],
+    [18, 11],
+    [21, 15],
+    [25, 19],
+    [30, 22],
+    [34, 24],
+  ], "water", ["road", "mountain", "ditch", "trench"]);
+  const lake: [number, number][] = [];
+  for (let y = 20; y <= 26; y++) {
+    for (let x = 31; x <= 38; x++) {
+      if (Math.abs(x - 34) + Math.abs(y - 23) <= 4) lake.push([x, y]);
+    }
+  }
+  stampTerrain(map, cols, rows, lake, "water", ["road", "mountain", "ditch", "trench"]);
+
   stampMountains(map, cols, rows, [
     [16, 0], [17, 0], [18, 0], [19, 0],
     [15, 1], [16, 1], [17, 1], [18, 1], [19, 1],
@@ -27,6 +113,16 @@ function buildFrontierTerrain() {
   ]);
   stampMountains(map, cols, rows, [
     [14, 10], [15, 10], [16, 10], [15, 11], [16, 11], [16, 12],
+  ]);
+  stampMountains(map, cols, rows, [
+    [40, 0], [41, 0], [42, 0], [43, 0], [44, 0], [45, 0],
+    [39, 1], [40, 1], [41, 1], [42, 1], [43, 1], [44, 1], [45, 1],
+    [40, 2], [41, 2], [42, 2], [43, 2], [44, 2],
+    [41, 3], [42, 3], [43, 3],
+    [42, 4],
+  ]);
+  stampMountains(map, cols, rows, [
+    [41, 28], [42, 28], [43, 28], [42, 29], [43, 29], [43, 30],
   ]);
   return addMountainFoothills(map, cols, rows);
 }
@@ -53,6 +149,7 @@ const frontierMap: MapDef = {
   name: "Западный фронт",
   cols: FRONTIER_COLS,
   rows: FRONTIER_ROWS,
+  startExplored: true,
   buildTerrain: buildFrontierTerrain,
   brief:
     "Главное: возьмите Цитадель Януса — столицу Ordo Lumen на фронте. По пути можно привлечь или подчинить степь (Станица Донская) и горы (Аул Кавказа) — это не ломает победу, но даёт силу.",
@@ -124,7 +221,19 @@ const frontierMap: MapDef = {
       isPlayer: true,
       movesLeft: 3,
       hero: { name: "Волков", level: 1, xp: 0, xpToNext: 100, classId: "officer" },
-      unitDefIds: ["squire", "archer", "acolyte"],
+      unitDefIds: ["squire", "archer"],
+    },
+    {
+      id: "player_night",
+      faction: "ri",
+      name: "Скит Арсения",
+      x: 4,
+      y: 5,
+      isPlayer: true,
+      isNightHero: true,
+      movesLeft: 0,
+      hero: { name: "Арсений", level: 1, xp: 0, xpToNext: 100, classId: "priest" },
+      unitDefIds: ["incorrupt"],
     },
     {
       id: "enemy1",
@@ -152,13 +261,14 @@ const frontierMap: MapDef = {
       id: "neutral_wolves",
       faction: "neutral",
       name: "Стая волков",
-      x: 8,
-      y: 2,
+      x: 10,
+      y: 3,
       isPlayer: false,
       isNeutral: true,
       movesLeft: 0,
       hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
       unitDefIds: ["wolf", "wolf", "wolf"],
+      veil: "day",
     },
     {
       id: "neutral_bandits",
@@ -171,6 +281,20 @@ const frontierMap: MapDef = {
       movesLeft: 0,
       hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
       unitDefIds: ["bandit", "bandit"],
+      veil: "both",
+    },
+    {
+      id: "neutral_memory",
+      faction: "neutral",
+      name: "Хор Памяти",
+      x: 8,
+      y: 8,
+      isPlayer: false,
+      isNeutral: true,
+      movesLeft: 0,
+      hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
+      unitDefIds: ["ghost", "ghost"],
+      veil: "night",
     },
     {
       id: "cossack_patrol",
@@ -235,6 +359,7 @@ const rearMap: MapDef = {
       movesLeft: 0,
       hero: { name: "", level: 1, xp: 0, xpToNext: 100 },
       unitDefIds: ["ogre", "wolf"],
+      veil: "day",
     },
   ],
 };
@@ -250,7 +375,7 @@ const plot1914Frontier: PlotSequence[] = [
       {
         type: "title",
         title: "Западный фронт · 1914",
-        text: "Мир на чужих условиях. Ordo Lumen уже чертит Pax поверх губерний.",
+        text: "Мир на чужих условиях. Ordo Lumen уже чертит Рейх поверх губерний.",
       },
       {
         type: "narration",
@@ -353,7 +478,7 @@ const plot1914Frontier: PlotSequence[] = [
       },
       {
         type: "narration",
-        text: "Горцы не солдаты чужого Pax и не казачий круг. Для них война — кровный счёт и твердыня, а не карта штаба.",
+        text: "Горцы не солдаты чужого Рейха и не казачий круг. Для них война — кровный счёт и твердыня, а не карта штаба.",
       },
       {
         type: "dialogue",
@@ -418,7 +543,7 @@ const plot1914Frontier: PlotSequence[] = [
       {
         type: "title",
         title: "Цитадель пала",
-        text: "Столица Ordo Lumen на фронте взята. Pax отступает — но не кончается.",
+        text: "Столица Ordo Lumen на фронте взята. Рейх отступает — но не кончается.",
       },
       {
         type: "dialogue",

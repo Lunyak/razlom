@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import type { Army } from "../../game/data";
-import { armyMaxMoves } from "../../game/data";
+import { armyMaxMoves, session, type Army } from "../../game/data";
+import { turnHudLine } from "../../game/dayNight";
 import { portraitTextureKey } from "../../game/portraits";
 import { vintageLookForKey } from "../../game/vintagePortrait";
 import { classLabel } from "../../game/heroClasses";
@@ -506,8 +506,8 @@ function syncPortraitMask(
 }
 
 /** Update portrait + texts from army state. */
-export function refreshPlayerSidebarPieces(pieces: PlayerSidebarPieces, army: Army | undefined, turn: number): void {
-  pieces.turnText.setText(`НЕД ${Math.ceil(turn / 7)}. ХОД ${turn}`);
+export function refreshPlayerSidebarPieces(pieces: PlayerSidebarPieces, army: Army | undefined, _turn: number): void {
+  pieces.turnText.setText(turnHudLine(session.state));
   if (!army) {
     pieces.portrait.setVisible(false);
     pieces.nameText.setText("Нет героя");
@@ -531,7 +531,11 @@ export function refreshPlayerSidebarPieces(pieces: PlayerSidebarPieces, army: Ar
   }
 
   pieces.nameText.setText(
-    army.isMissionary ? "Миссионер" : `${army.hero.name} · ${classLabel(army.hero)}`,
+    army.isMissionary
+      ? "Миссионер"
+      : army.isNightHero
+        ? `${army.hero.name} · ночь`
+        : `${army.hero.name} · ${classLabel(army.hero)}`,
   );
   const gear = equippedList(army.hero)
     .map((a) => a.name)

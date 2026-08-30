@@ -12,6 +12,7 @@ import { shouldOpenGlassFrameTest } from "./GlassFrameTestScene";
 import { shouldOpenRiBuildingsTest } from "./RiBuildingsTestScene";
 import { shouldOpenPanelGallery } from "./PanelGalleryTestScene";
 import { shouldOpenBattleMechanicsTest } from "./BattleMechanicsTestScene";
+import { shouldOpenBattleLookTest } from "./BattleLookTestScene";
 import { shouldOpenBattleLayoutTest } from "./BattleLayoutTestScene";
 import { loadBuildingOverlayLayoutFromDisk } from "../game/buildingOverlayLayout";
 import { onViewResize, viewH, viewSize, viewW } from "../ui/viewport";
@@ -78,7 +79,7 @@ export class BootScene extends Phaser.Scene {
     }
 
     this.addRow("title", "РАЗЛОМ");
-    this.addRow("sub", "Часть I  ·  1914  ·  Ordo Lumen несёт Pax");
+    this.addRow("sub", "Часть I  ·  1914  ·  Ordo Lumen несёт Рейх");
 
     this.addButton("Новая игра", "primary", () => {
       resetGame();
@@ -116,6 +117,10 @@ export class BootScene extends Phaser.Scene {
     this.addButton("Тест · механики боя", "ghost", () => {
       window.location.hash = "test/battle";
       this.scene.start("BattleMechanicsTest");
+    });
+    this.addButton("Экран боя", "ghost", () => {
+      window.location.hash = "test/battle-screen";
+      this.scene.start("BattleLookTest");
     });
     this.addButton("Тест · редактор построек РИ", "ghost", () => {
       window.location.hash = "test/buildings";
@@ -160,9 +165,11 @@ export class BootScene extends Phaser.Scene {
         ? "PanelGalleryTest"
         : shouldOpenBattleLayoutTest()
           ? "BattleLayoutTest"
-          : shouldOpenBattleMechanicsTest()
-            ? "BattleMechanicsTest"
-            : shouldOpenRiBuildingsTest()
+          : shouldOpenBattleLookTest()
+            ? "BattleLookTest"
+            : shouldOpenBattleMechanicsTest()
+              ? "BattleMechanicsTest"
+              : shouldOpenRiBuildingsTest()
               ? "RiBuildingsTest"
               : shouldOpenEditor()
                 ? "Editor"

@@ -49,10 +49,12 @@ interface DemoSlot {
 const RI_DEMO_IDS = [
   "hero_ri",
   "hero_ri_eliana",
+  "hero_ri_arseniy",
   "knight",
   "archer",
   "squire",
   "acolyte",
+  "incorrupt",
   "witch",
   "missionary",
 ] as const;
@@ -160,10 +162,12 @@ export class GlassFrameTestScene extends Phaser.Scene {
     const playerDefs: SlotDef[] = [
       { key: "hero_ri", hp: 55, max: 55, hero: true },
       { key: "hero_ri_eliana", hp: 55, max: 55, hero: true },
+      { key: "hero_ri_arseniy", hp: 48, max: 48, hero: true },
       { key: "unit_knight", hp: 48, max: 48, vet: true },
       { key: "unit_archer", hp: 32, max: 32 },
       { key: "unit_squire", hp: 40, max: 40 },
       { key: "unit_acolyte", hp: 36, max: 36 },
+      { key: "unit_incorrupt", hp: 42, max: 42 },
       { key: "unit_witch", hp: 38, max: 38 },
       { key: "unit_missionary", hp: 42, max: 42 },
     ];

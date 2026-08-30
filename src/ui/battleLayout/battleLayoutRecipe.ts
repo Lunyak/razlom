@@ -1,25 +1,30 @@
 import { GLASS_PHOTO_SIZE } from "../../game/vintagePortrait";
+import { battleInnerRect, battleStripHeight, battleTurnFrameSize } from "../battleHud/battleWindowFrame";
 import {
-  BATTLE_CHROME_BOTTOM,
-  charcoalInnerBottom,
-  type CharcoalBox,
-} from "../screenCharcoalFrame";
+  battleFormationBounds,
+  battleSlotToPos,
+} from "../battleFormationLayout";
+import { type CharcoalBox } from "../screenCharcoalFrame";
 import {
   getPanelLayout,
   pieceTransform,
   type PanelLayoutConfig,
 } from "../panelStack/panelLayoutStore";
-import {
-  battleArenaRect,
-  battleFormationBounds,
-  battleFormationCenter,
-  battleSlotToPos,
-} from "../battleFormationLayout";
-
 export const BATTLE_LAYOUT_ID = "battle-scene";
 
-/** Medallion on-screen size (matches BattleFocusWindows). */
-export const BATTLE_FOCUS_FRAME = Math.round((352 * 2) / 3);
+/** Native combat_focus_frame.png — display never exceeds this (no upscale). */
+export const BATTLE_FOCUS_SRC = 599;
+/** On-screen medallion size (downscale from source). */
+export const BATTLE_FOCUS_FRAME = 350;
+
+/** Fit the thorn ring into the inner opening; never larger than the PNG. */
+export function battleFocusFrameSize(w: number, h: number): number {
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  const maxH = Math.max(180, inner.h - stripH - 12);
+  const maxW = Math.max(180, Math.floor(inner.w * 0.36));
+  return Math.min(BATTLE_FOCUS_FRAME, BATTLE_FOCUS_SRC, maxH, maxW);
+}
 
 export const BATTLE_LAYOUT_PIECES = {
   arena: "arena",
@@ -31,6 +36,7 @@ export const BATTLE_LAYOUT_PIECES = {
   focusActor: "focus-actor",
   focusTarget: "focus-target",
   actionBar: "action-bar",
+  turnStrip: "turn-strip",
   hudTitle: "hud-title",
   hudStatus: "hud-status",
   hudSpell: "hud-spell",
@@ -65,6 +71,7 @@ export const BATTLE_PIECE_CATALOG: { id: string; label: string }[] = [
   { id: BATTLE_LAYOUT_PIECES.focusActor, label: "Медальон «Ход»" },
   { id: BATTLE_LAYOUT_PIECES.focusTarget, label: "Медальон «Цель»" },
   { id: BATTLE_LAYOUT_PIECES.actionBar, label: "Кнопки боя" },
+  { id: BATTLE_LAYOUT_PIECES.turnStrip, label: "Очередь хода" },
   { id: BATTLE_LAYOUT_PIECES.hudTitle, label: "Заголовок «БОЙ»" },
   { id: BATTLE_LAYOUT_PIECES.hudStatus, label: "Строка статуса" },
   { id: BATTLE_LAYOUT_PIECES.hudSpell, label: "Строка заклинаний" },
@@ -72,8 +79,10 @@ export const BATTLE_PIECE_CATALOG: { id: string; label: string }[] = [
 ];
 
 const { frameW, frameH } = GLASS_PHOTO_SIZE;
-const ACTION_BAR_W = 148 * 4 + 10 * 3;
-const ACTION_BAR_H = 40;
+/** Matches BattleSpellBar icon size. */
+export const BATTLE_ACTION_ICON = 52;
+const ACTION_BAR_W = BATTLE_ACTION_ICON + 24;
+const ACTION_BAR_H = 4 * (BATTLE_ACTION_ICON + 20);
 const BAG_SIZE = 48;
 const HUD_TITLE_H = 36;
 const HUD_STATUS_H = 22;
@@ -84,16 +93,19 @@ function scaledRect(w: number, h: number, sx: number, sy: number) {
 }
 
 export function battleCharcoalBox(w: number, h: number): CharcoalBox {
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
   return {
-    x: 8,
-    y: 8,
-    w: w - 16,
-    h: Math.max(120, h - 8 - BATTLE_CHROME_BOTTOM),
+    x: inner.x,
+    y: inner.y,
+    w: inner.w,
+    h: Math.max(80, inner.h - stripH),
   };
 }
 
 export function battleRestBottom(w: number, h: number): number {
-  return charcoalInnerBottom(battleCharcoalBox(w, h));
+  const box = battleCharcoalBox(w, h);
+  return box.y + box.h;
 }
 
 export function resolveFormationAnchor(
@@ -101,17 +113,27 @@ export function resolveFormationAnchor(
   h: number,
   cfg: PanelLayoutConfig = getPanelLayout(BATTLE_LAYOUT_ID),
 ): { battleCx: number; formationStartY: number } {
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  const stripTop = inner.y + inner.h - stripH;
   const center = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.formationCenter);
   return {
-    battleCx: w / 2 + center.x,
-    formationStartY: Math.max(140, Math.round(h * 0.28)) + center.y,
+    battleCx: inner.x + inner.w / 2 + center.x,
+    formationStartY: Math.max(inner.y + 72, Math.round(inner.y + (stripTop - inner.y) * 0.22)) + center.y,
   };
 }
 
 export function battleArenaLayoutRect(w: number, h: number) {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.arena);
-  const base = battleArenaRect(w, h);
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  const base = {
+    x: inner.x,
+    y: inner.y + 36,
+    w: inner.w,
+    h: Math.max(80, inner.h - stripH - 36),
+  };
   const size = scaledRect(base.w, base.h, t.scaleX, t.scaleY);
   return {
     x: base.x + t.x,
@@ -139,7 +161,8 @@ export function battleUnitDefaultPos(
   h: number,
 ): { x: number; y: number } {
   const { anchor, grid } = gridDefault(side, w, h);
-  const pos = battleSlotToPos(side, slot, anchor.battleCx, anchor.formationStartY);
+  const inner = battleInnerRect(w, h);
+  const pos = battleSlotToPos(side, slot, inner, anchor.formationStartY);
   return { x: pos.x + grid.x, y: pos.y + grid.y };
 }
 
@@ -149,21 +172,16 @@ export function battleUnitLayoutPos(
   w: number,
   h: number,
 ): { x: number; y: number } {
-  const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
-  const def = battleUnitDefaultPos(side, slot, w, h);
-  const slotId =
-    side === "player"
-      ? BATTLE_LAYOUT_PIECES.playerSlot(slot)
-      : BATTLE_LAYOUT_PIECES.enemySlot(slot);
-  const slotT = pieceTransform(cfg, slotId);
-  return { x: def.x + slotT.x, y: def.y + slotT.y };
+  return battleUnitDefaultPos(side, slot, w, h);
 }
 
-function defaultFocusPositions(w: number, h: number, restBottom?: number) {
-  const bottom = restBottom ?? battleRestBottom(w, h);
-  const cx = w / 2;
-  const y = Math.round(bottom - BATTLE_FOCUS_FRAME / 2);
-  const spread = Math.round(BATTLE_FOCUS_FRAME * 0.72);
+function defaultFocusPositions(w: number, h: number, _restBottom?: number) {
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  const frame = battleFocusFrameSize(w, h);
+  const cx = inner.x + inner.w / 2;
+  const y = Math.round(inner.y + (inner.h - stripH) / 2);
+  const spread = Math.round(frame * 0.5);
   return {
     actor: { x: cx - spread, y },
     target: { x: cx + spread, y },
@@ -184,34 +202,91 @@ export function battleFocusTargetPos(w: number, h: number, restBottom?: number) 
   return { x: base.x + t.x, y: base.y + t.y };
 }
 
-export function battleActionBarPos(w: number, h: number) {
+export type BattleActionSlotId = "skip" | "defend" | "flee" | "quick";
+
+const ACTION_COL: BattleActionSlotId[] = ["quick", "skip", "defend", "flee"];
+const ACTION_COL_STEP = BATTLE_ACTION_ICON + 20;
+
+/** Command icons on the inner flank of the player's 2×3 frames. */
+export function battleActionButtonPositions(
+  w: number,
+  h: number,
+): Record<BattleActionSlotId, { x: number; y: number }> {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.actionBar);
-  return { x: w / 2 + t.x, y: h - 108 + t.y };
+  const inner = battleInnerRect(w, h);
+  const anchor = resolveFormationAnchor(w, h, cfg);
+  const grid = battleFormationBounds("player", inner, anchor.formationStartY);
+  const x = grid.x + grid.w + BATTLE_ACTION_ICON * 0.55 + t.x;
+  const total = (ACTION_COL.length - 1) * ACTION_COL_STEP;
+  const y0 = grid.y + grid.h / 2 - total / 2 + t.y;
+  const spots = {} as Record<BattleActionSlotId, { x: number; y: number }>;
+  ACTION_COL.forEach((id, i) => {
+    spots[id] = { x, y: y0 + i * ACTION_COL_STEP };
+  });
+  return spots;
 }
 
-export function battleHudTitlePos(w: number, _h: number) {
+export function battleActionBarPos(w: number, h: number) {
+  const p = battleActionButtonPositions(w, h);
+  return {
+    x: (p.skip.x + p.defend.x + p.flee.x + p.quick.x) / 4,
+    y: (p.skip.y + p.defend.y + p.flee.y + p.quick.y) / 4,
+  };
+}
+
+export function battleHudTitlePos(w: number, h: number) {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.hudTitle);
-  return { x: w / 2 + t.x, y: 28 + t.y };
+  const inner = battleInnerRect(w, h);
+  return { x: inner.x + inner.w / 2 + t.x, y: inner.y + 8 + t.y };
 }
 
 export function battleHudStatusPos(w: number, h: number) {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.hudStatus);
-  return { x: w / 2 + t.x, y: h - 65 + t.y };
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  return { x: inner.x + inner.w / 2 + t.x, y: inner.y + inner.h - stripH - 70 + t.y };
 }
 
 export function battleHudSpellPos(w: number, h: number) {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.hudSpell);
-  return { x: w / 2 + t.x, y: h - 40 + t.y };
+  const inner = battleInnerRect(w, h);
+  const actor = defaultFocusPositions(w, h).actor;
+  return {
+    x: inner.x + inner.w / 2 + t.x,
+    y: actor.y - battleFocusFrameSize(w, h) / 2 - 40 + t.y,
+  };
 }
 
-export function battleHudBagPos(_w: number, h: number) {
+export function battleHudBagPos(w: number, h: number) {
   const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
   const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.hudBag);
-  return { x: 80 + t.x, y: h - 108 + t.y };
+  const inner = battleInnerRect(w, h);
+  const stripH = battleStripHeight(inner.h, inner.w);
+  return { x: inner.x + 64 + t.x, y: inner.y + inner.h - stripH - 28 + t.y };
+}
+
+export function battleTurnStripRect(
+  w: number,
+  h: number,
+  opts: { rightInset?: number } = {},
+) {
+  const cfg = getPanelLayout(BATTLE_LAYOUT_ID);
+  const t = pieceTransform(cfg, BATTLE_LAYOUT_PIECES.turnStrip);
+  const inner = battleInnerRect(w, h);
+  const inset = opts.rightInset ?? 0;
+  const width = Math.max(80, inner.w - inset);
+  const frame = battleTurnFrameSize(width);
+  const stripH = Math.max(64, Math.round(frame * Math.min(1, t.scaleY || 1)));
+  return {
+    x: inner.x + t.x,
+    y: inner.y + inner.h - stripH + t.y,
+    w: width * (t.scaleX || 1),
+    h: stripH,
+  };
 }
 
 export function battlePieceBaseMetrics(pieceId: string): { w: number; h: number } | null {
@@ -232,6 +307,8 @@ export function battlePieceBaseMetrics(pieceId: string): { w: number; h: number 
       return { w: BATTLE_FOCUS_FRAME, h: BATTLE_FOCUS_FRAME };
     case BATTLE_LAYOUT_PIECES.actionBar:
       return { w: ACTION_BAR_W, h: ACTION_BAR_H };
+    case BATTLE_LAYOUT_PIECES.turnStrip:
+      return { w: 1200, h: battleTurnFrameSize(1200) };
     case BATTLE_LAYOUT_PIECES.hudTitle:
       return { w: 220, h: HUD_TITLE_H };
     case BATTLE_LAYOUT_PIECES.hudStatus:
@@ -279,7 +356,8 @@ export function battlePieceBounds(
   if (pieceId === BATTLE_LAYOUT_PIECES.playerFormation || pieceId === BATTLE_LAYOUT_PIECES.enemyFormation) {
     const side = pieceId === BATTLE_LAYOUT_PIECES.playerFormation ? "player" : "enemy";
     const anchor = resolveFormationAnchor(screenW, screenH, cfg);
-    const b = battleFormationBounds(side, anchor.battleCx, anchor.formationStartY);
+    const inner = battleInnerRect(screenW, screenH);
+    const b = battleFormationBounds(side, inner, anchor.formationStartY);
     const t = pieceTransform(cfg, pieceId);
     const base = metrics(pieceId)!;
     const size = scaledRect(base.w, base.h, t.scaleX, t.scaleY);
@@ -294,13 +372,14 @@ export function battlePieceBounds(
 
   if (pieceId === BATTLE_LAYOUT_PIECES.playerFrame || pieceId === BATTLE_LAYOUT_PIECES.enemyFrame) {
     const side = pieceId === BATTLE_LAYOUT_PIECES.playerFrame ? "player" : "enemy";
-    const anchor = resolveFormationAnchor(screenW, screenH, cfg);
-    const fc = battleFormationCenter(side, anchor.battleCx, anchor.formationStartY);
     const t = pieceTransform(cfg, pieceId);
-    const size = scaledRect(fc.w, fc.h, t.scaleX, t.scaleY);
+    const inner = battleInnerRect(screenW, screenH);
+    const anchor = resolveFormationAnchor(screenW, screenH, cfg);
+    const grid = battleFormationBounds(side, inner, anchor.formationStartY);
+    const size = scaledRect(grid.w, grid.h, t.scaleX, t.scaleY);
     return {
-      x: fc.x - size.w / 2 + t.x,
-      y: fc.y - size.h / 2 + t.y,
+      x: grid.x + grid.w / 2 - size.w / 2 + t.x,
+      y: grid.y + grid.h / 2 - size.h / 2 + t.y,
       w: size.w,
       h: size.h,
       kind: "rect",
@@ -327,7 +406,8 @@ export function battlePieceBounds(
   if (pieceId === BATTLE_LAYOUT_PIECES.focusActor) {
     const t = pieceTransform(cfg, pieceId);
     const base = defaultFocusPositions(screenW, screenH).actor;
-    const size = scaledRect(BATTLE_FOCUS_FRAME, BATTLE_FOCUS_FRAME, t.scaleX, t.scaleY);
+    const frame = battleFocusFrameSize(screenW, screenH);
+    const size = scaledRect(frame, frame, t.scaleX, t.scaleY);
     return {
       x: base.x + t.x - size.w / 2,
       y: base.y + t.y - size.h / 2,
@@ -340,7 +420,8 @@ export function battlePieceBounds(
   if (pieceId === BATTLE_LAYOUT_PIECES.focusTarget) {
     const t = pieceTransform(cfg, pieceId);
     const base = defaultFocusPositions(screenW, screenH).target;
-    const size = scaledRect(BATTLE_FOCUS_FRAME, BATTLE_FOCUS_FRAME, t.scaleX, t.scaleY);
+    const frame = battleFocusFrameSize(screenW, screenH);
+    const size = scaledRect(frame, frame, t.scaleX, t.scaleY);
     return {
       x: base.x + t.x - size.w / 2,
       y: base.y + t.y - size.h / 2,
@@ -351,17 +432,15 @@ export function battlePieceBounds(
   }
 
   if (pieceId === BATTLE_LAYOUT_PIECES.actionBar) {
-    const pos = battleActionBarPos(screenW, screenH);
-    const t = pieceTransform(cfg, pieceId);
-    const base = metrics(pieceId)!;
-    const size = scaledRect(base.w, base.h, t.scaleX, t.scaleY);
-    return {
-      x: pos.x - size.w / 2,
-      y: pos.y - size.h / 2,
-      w: size.w,
-      h: size.h,
-      kind: "rect",
-    };
+    const spots = battleActionButtonPositions(screenW, screenH);
+    const pad = BATTLE_ACTION_ICON / 2 + 10;
+    const xs = Object.values(spots).map((p) => p.x);
+    const ys = Object.values(spots).map((p) => p.y);
+    const x0 = Math.min(...xs) - pad;
+    const y0 = Math.min(...ys) - pad;
+    const x1 = Math.max(...xs) + pad;
+    const y1 = Math.max(...ys) + pad;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, kind: "rect" };
   }
 
   if (pieceId === BATTLE_LAYOUT_PIECES.hudTitle) {
@@ -418,6 +497,11 @@ export function battlePieceBounds(
       h: size.h,
       kind: "circle",
     };
+  }
+
+  if (pieceId === BATTLE_LAYOUT_PIECES.turnStrip) {
+    const strip = battleTurnStripRect(screenW, screenH);
+    return { ...strip, kind: "rect" };
   }
 
   return null;

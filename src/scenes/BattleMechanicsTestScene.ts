@@ -14,7 +14,7 @@ import {
   queueAssetPack,
   type AssetEntry,
 } from "../game/assetPacks";
-import { FORMATION_FRAME_KEYS, hurtPortraitPath, hurtPortraitTextureKey, portraitPath, portraitTextureKey } from "../game/portraits";
+import { hurtPortraitPath, hurtPortraitTextureKey, portraitPath, portraitTextureKey } from "../game/portraits";
 import {
   applyOnHitStatuses,
   applyStatus,
@@ -33,15 +33,22 @@ import { GLASS_PHOTO_SIZE } from "../game/vintagePortrait";
 import { BattleActionBar } from "../ui/BattleActionBar";
 import { BattleFocusWindows } from "../ui/BattleFocusWindows";
 import {
+  BATTLE_STAGE_COLOR,
+  BattleTurnStrip,
+  BattleWindowFrame,
+  battleInnerRect,
+  battleStripHeight,
+  createBattleStage,
+  layoutBattleStage,
+  paintBattleArena,
+  unitsInInitiativeOrder,
+  type BattleStage,
+} from "../ui/battleHud";
+import {
   battleArenaLayoutRect,
   battleUnitLayoutPos,
   resolveFormationAnchor,
 } from "../ui/battleLayout";
-import {
-  FORMATION_START_Y,
-  battleFormationBounds,
-  battleFormationCenter,
-} from "../ui/battleFormationLayout";
 import { GlassPhotoFrame } from "../ui/GlassPhotoFrame";
 import { UnitInspectPanel } from "../ui/UnitInspectPanel";
 import { spawnFloatingCombatText } from "../ui/floatingCombatText";
@@ -108,21 +115,22 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
   private unitInspect!: UnitInspectPanel;
   private focusWindows!: BattleFocusWindows;
   private actionBar!: BattleActionBar;
+  private turnStrip?: BattleTurnStrip;
   private rightInspect = false;
   private contextMenuBlock = (e: Event) => e.preventDefault();
   private nextId = 1;
   private unitViews = new Map<string, GlassPhotoFrame>();
   private emptySlotViews: GlassPhotoFrame[] = [];
-  private formationDecor: Phaser.GameObjects.GameObject[] = [];
   private arenaGfx?: Phaser.GameObjects.Graphics;
   private sidebarGfx?: Phaser.GameObjects.Graphics;
+  private stage?: BattleStage;
+  private windowFrame?: BattleWindowFrame;
   private battleCx = 480;
-  private formationStartY = FORMATION_START_Y;
   private defending = new Set<string>();
   private focusTargetId: string | null = null;
 
-  constructor() {
-    super("BattleMechanicsTest");
+  constructor(key = "BattleMechanicsTest", protected readonly lookOnly = false) {
+    super(key);
   }
 
   preload() {
@@ -140,11 +148,11 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
   private titleText?: Phaser.GameObjects.Text;
 
   create() {
-    this.cameras.main.setBackgroundColor(0x12100e);
+    this.cameras.main.setBackgroundColor(BATTLE_STAGE_COLOR);
+    this.stage = createBattleStage(this);
     this.logLines = [];
     this.unitViews.clear();
     this.emptySlotViews = [];
-    this.formationDecor = [];
     this.defending.clear();
 
     this.playerArmy = this.makeArmy("ri", "Испытание", DEFAULT_PLAYER, true);
@@ -155,26 +163,34 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     this.activeUnitId = this.attackerId;
 
     this.titleText = this.add
-      .text(480, 28, "ТЕСТ БОЯ", {
+      .text(480, 28, this.lookOnly ? "БОЙ" : "ТЕСТ БОЯ", {
         fontFamily: "Georgia, serif",
         fontSize: "32px",
-        color: "#e8d5a3",
+        color: "#efe6d2",
       })
       .setOrigin(0.5, 0)
-      .setDepth(5);
+      .setDepth(5)
+      .setStroke("#0a0806", 5)
+      .setShadow(0, 2, "#000000", 8, true, true);
+    if (this.lookOnly && typeof this.titleText.setLetterSpacing === "function") {
+      this.titleText.setLetterSpacing(10);
+    }
 
-    this.hintText = this.add
-      .text(480, 88, "", {
-        fontFamily: "Georgia, serif",
-        fontSize: "14px",
-        color: "#c9a227",
-        align: "center",
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(5);
+    if (!this.lookOnly) {
+      this.hintText = this.add
+        .text(480, 88, "", {
+          fontFamily: "Georgia, serif",
+          fontSize: "14px",
+          color: "#c9a227",
+          align: "center",
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(5)
+        .setStroke("#0a0806", 3);
+    }
 
     this.layoutBattleField();
-    this.buildSidebar();
+    if (!this.lookOnly) this.buildSidebar();
 
     this.focusWindows = new BattleFocusWindows(this);
     this.actionBar = new BattleActionBar(this, {
@@ -184,6 +200,9 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
       onQuick: () => this.autoPassTurns(4),
     });
     this.actionBar.setState({ playerTurn: true, busy: false, canFlee: false });
+    this.turnStrip = new BattleTurnStrip(this);
+    this.turnStrip.setRightInset(this.sidebarWidth());
+    this.windowFrame = new BattleWindowFrame(this);
     this.layoutChrome();
 
     this.unitInspect = new UnitInspectPanel(this);
@@ -192,6 +211,7 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
       this.game.canvas.removeEventListener("contextmenu", this.contextMenuBlock);
       this.actionBar?.destroy();
       this.focusWindows?.destroy();
+      this.turnStrip?.destroy();
     });
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
@@ -200,12 +220,12 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
         this.updateInspect(pointer);
         return;
       }
-      if (pointer.x >= viewW(this) - SIDEBAR_W) return;
+      if (this.sidebarWidth() > 0 && pointer.x >= viewW(this) - this.sidebarWidth()) return;
       const hit = this.unitAtPointer(pointer);
       if (hit) this.selectUnit(hit.unit.instanceId, hit.side);
     });
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
-      if (pointer.x >= viewW(this) - SIDEBAR_W) return;
+      if (this.sidebarWidth() > 0 && pointer.x >= viewW(this) - this.sidebarWidth()) return;
       if (this.rightInspect && pointer.rightButtonDown()) {
         this.updateInspect(pointer);
         return;
@@ -225,7 +245,7 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
 
     onViewResize(this, () => {
       this.layoutBattleField();
-      this.layoutSidebar();
+      if (!this.lookOnly) this.layoutSidebar();
       this.layoutChrome();
       this.unitInspect.layout();
     });
@@ -244,18 +264,26 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     });
 
     this.refreshUi();
-    this.pushLog("L — конструктор раскладки · клик по юниту — фокус");
+    if (!this.lookOnly) this.pushLog("L — конструктор раскладки · клик по юниту — фокус");
+  }
+
+  private sidebarWidth(): number {
+    return this.lookOnly ? 0 : SIDEBAR_W;
   }
 
   private battleAreaW(): number {
-    return Math.max(640, viewW(this) - SIDEBAR_W);
+    return Math.max(640, viewW(this) - this.sidebarWidth());
   }
 
   private layoutChrome() {
-    this.titleText?.setPosition(this.battleCx, 28);
-    this.hintText?.setPosition(this.battleCx, 88);
-    this.focusWindows?.layout();
+    const { w, h } = viewSize(this);
+    const inner = battleInnerRect(w, h);
+    this.titleText?.setPosition(inner.x + inner.w / 2, inner.y + 8);
+    this.hintText?.setPosition(inner.x + inner.w / 2, inner.y + 44);
+    this.focusWindows?.layout({ restBottom: inner.y + inner.h - battleStripHeight(inner.h, inner.w) });
     this.actionBar?.layout();
+    this.turnStrip?.layout();
+    this.windowFrame?.layout();
   }
 
   private makeArmy(
@@ -294,9 +322,9 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     const areaW = this.battleAreaW();
     const anchor = resolveFormationAnchor(w, h);
     this.battleCx = anchor.battleCx;
-    this.formationStartY = anchor.formationStartY;
     void areaW;
 
+    layoutBattleStage(this, this.stage);
     this.drawArena();
     this.rebuildFormations();
     this.layoutChrome();
@@ -307,37 +335,10 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     const arena = battleArenaLayoutRect(w, h);
 
     this.arenaGfx?.destroy();
-    for (const obj of this.formationDecor) obj.destroy();
-    this.formationDecor = [];
 
     const g = this.add.graphics().setDepth(0);
     this.arenaGfx = g;
-    g.fillStyle(0x2a241c, 1);
-    g.fillRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x6b5a3e, 1);
-    g.strokeRect(arena.x, arena.y, arena.w, arena.h);
-    g.lineStyle(2, 0x8a7050, 0.85);
-    g.lineBetween(this.battleCx, arena.y + 16, this.battleCx, arena.y + arena.h - 16);
-
-    for (const side of ["player", "enemy"] as const) {
-      this.drawFormationFrame(side);
-    }
-  }
-
-  private drawFormationFrame(side: "player" | "enemy") {
-    const texKey = side === "player" ? FORMATION_FRAME_KEYS.player : FORMATION_FRAME_KEYS.enemy;
-    const { x, y, w, h } = battleFormationCenter(side, this.battleCx, this.formationStartY);
-    if (this.textures.exists(texKey)) {
-      this.formationDecor.push(this.add.image(x, y, texKey).setDisplaySize(w, h).setDepth(1));
-      return;
-    }
-    const b = battleFormationBounds(side, this.battleCx, this.formationStartY);
-    const g = this.add.graphics().setDepth(1);
-    g.fillStyle(0x14100e, 0.82);
-    g.fillRect(b.x, b.y, b.w, b.h);
-    g.lineStyle(2, side === "player" ? 0xc9a227 : 0x98a8c0, 0.9);
-    g.strokeRect(b.x, b.y, b.w, b.h);
-    this.formationDecor.push(g);
+    paintBattleArena(g, arena, this.battleCx);
   }
 
   private rebuildFormations() {
@@ -468,6 +469,7 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     const active = this.ctxFor(this.activeUnitId);
     if (active && active.unit.hp > 0) {
       this.focusWindows.setActor(active);
+      this.focusWindows.setSkillState({ enabled: active.side === "player" });
     } else {
       this.focusWindows.clearActor();
     }
@@ -490,11 +492,12 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
       .text(x + SIDEBAR_W / 2, 16, "ПЕСОЧНИЦА", {
         fontFamily: "Georgia, serif",
         fontSize: "16px",
-        color: "#e8d5a3",
+        color: "#efe6d2",
       })
       .setOrigin(0.5, 0)
       .setDepth(21)
-      .setScrollFactor(0);
+      .setScrollFactor(0)
+      .setStroke("#0a0806", 3);
 
     this.sidebarHint = this.add
       .text(x + SIDEBAR_W / 2, 38, "Esc — меню · ПКМ — карточка", {
@@ -543,9 +546,9 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
 
     this.sidebarGfx?.destroy();
     this.sidebarGfx = this.add.graphics().setDepth(20).setScrollFactor(0);
-    this.sidebarGfx.fillStyle(0x181410, 0.96);
+    this.sidebarGfx.fillStyle(0x121010, 0.92);
     this.sidebarGfx.fillRect(x, 0, SIDEBAR_W, h);
-    this.sidebarGfx.lineStyle(2, 0x6b5a3e, 0.9);
+    this.sidebarGfx.lineStyle(1, 0x6a6864, 0.7);
     this.sidebarGfx.lineBetween(x, 0, x, h);
 
     this.sidebarTitle?.setX(x + SIDEBAR_W / 2);
@@ -984,6 +987,15 @@ export class BattleMechanicsTestScene extends Phaser.Scene {
     );
 
     this.refreshFocusWindows();
+    this.refreshTurnStrip();
+  }
+
+  private refreshTurnStrip() {
+    if (!this.turnStrip) return;
+    this.turnStrip.setQueue(
+      unitsInInitiativeOrder(this.playerArmy, this.enemyArmy),
+      this.activeUnitId,
+    );
   }
 
   private pushLog(line: string) {

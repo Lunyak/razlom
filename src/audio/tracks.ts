@@ -179,7 +179,7 @@ export const MENU_TRACKS: MenuTrack[] = [
   },
   {
     id: "pax",
-    title: "Pax Lumen",
+    title: "Рейх Lumen",
     subtitle: "Ordo · 1914",
     bpm: 48,
     loopBeats: 36,
