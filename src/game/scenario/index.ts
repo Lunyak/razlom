@@ -63,6 +63,7 @@ export {
   createEmptyMap,
   createEmptyScenario,
   downloadScenarioJson,
+  ensureMapPaintLayers,
   materializeScenario,
   pickScenarioJsonFile,
   resolveMapTerrain,

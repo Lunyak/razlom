@@ -9,6 +9,7 @@ import { BattleMechanicsTestScene } from "./scenes/BattleMechanicsTestScene";
 import { BattleLookTestScene } from "./scenes/BattleLookTestScene";
 import { BattleLayoutTestScene } from "./scenes/BattleLayoutTestScene";
 import { PanelGalleryTestScene } from "./scenes/PanelGalleryTestScene";
+import { BattleTable3dTestScene } from "./scenes/BattleTable3dTestScene";
 import { bootstrapSession } from "./game/session";
 import { loadCustomScenariosFromStorage } from "./game/scenario";
 import { getResolution, loadDisplayPrefs } from "./ui/displayPrefs";
@@ -42,6 +43,7 @@ const config: Phaser.Types.Core.GameConfig = {
     BattleLookTestScene,
     BattleLayoutTestScene,
     PanelGalleryTestScene,
+    BattleTable3dTestScene,
   ],
 };
 

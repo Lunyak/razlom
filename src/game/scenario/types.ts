@@ -2,6 +2,7 @@ import type { FactionId, Hero, VeilPresence } from "../data";
 import type { MapSite } from "../sites";
 import type { Terrain } from "../world";
 import type { BuildingId } from "../catalog";
+import type { MapDecorCell, TerrainGroundKey } from "../terrainArt";
 import type { PlotSequence } from "./plot";
 
 /**
@@ -60,6 +61,10 @@ export interface MapDef {
   rows: number;
   /** Concrete terrain (editor / JSON). Prefer this when present. */
   terrain?: Terrain[][];
+  /** Optional per-cell ground plate. `null` keeps the default island sheet. */
+  groundArt?: (TerrainGroundKey | null)[][];
+  /** Optional per-cell overlay. `null` = auto, `""` = none. */
+  decorArt?: MapDecorCell[][];
   /** Lazy builder for hand-authored TS scenarios */
   buildTerrain?: () => Terrain[][];
   cities: CitySpawn[];

@@ -81,6 +81,11 @@ import {
   pointInIsoDiamond,
   screenToGrid as screenToGridAt,
 } from "../game/iso";
+import {
+  cellShowsTrees,
+  type MapDecorCell,
+  type TerrainGroundKey,
+} from "../game/terrainArt";
 import { TerrainLayer, pointInTreeOverlay } from "../game/terrainLayer";
 import { WORLD_ASSETS, attachOptionalLoadPump, queueAssetPack } from "../game/assetPacks";
 import { ArmyInspectPanel } from "../ui/ArmyInspectPanel";
@@ -95,7 +100,7 @@ import { onViewResize, viewSize } from "../ui/viewport";
 import { showGameOverOverlay, worldGutterW, WorldHud } from "../ui/worldHud";
 import { ArmyMapLayer } from "./world/armyMapLayer";
 import { MapAtmosphere } from "./world/mapAtmosphere";
-import { paintRails } from "./world/railLayer";
+import { RailLayer } from "./world/railLayer";
 import { paintBloodStains, paintCityMarkers, paintGraveMarkers, paintSiteMarkers } from "./world/mapMarkers";
 import { paintPathFlags, type ArmyPathGoal, type PendingPathOrder } from "./world/pathFlags";
 import {
@@ -158,6 +163,8 @@ function screenToGrid(px: number, py: number): { gx: number; gy: number } {
 
 export class WorldScene extends Phaser.Scene {
   private map: Terrain[][] = [];
+  private groundArt?: (TerrainGroundKey | null)[][];
+  private decorArt?: MapDecorCell[][];
   private terrainLayer!: TerrainLayer;
 
   private tileGfx!: Phaser.GameObjects.Graphics;
@@ -187,7 +194,7 @@ export class WorldScene extends Phaser.Scene {
   private atmosphere!: MapAtmosphere;
   private pathFlagsGfx!: Phaser.GameObjects.Graphics;
   private pathTurnsText!: Phaser.GameObjects.Text;
-  private railGfx!: Phaser.GameObjects.Graphics;
+  private railLayer!: RailLayer;
   private railMode = false;
   private railPreview: RailPlan | null = null;
   private pendingOrder: PendingPathOrder | null = null;
@@ -214,6 +221,8 @@ export class WorldScene extends Phaser.Scene {
     const { w, h } = viewSize(this);
     setMapGeometry(mapDef.cols, mapDef.rows, w, h);
     this.map = resolveMapTerrain(mapDef);
+    this.groundArt = mapDef.groundArt;
+    this.decorArt = mapDef.decorArt;
     this.visible = resetVisibility(COLS, ROWS);
     session.state.discoveredByMap[mapDef.id] = ensureDiscoveredGrid(
       session.state.discoveredByMap[mapDef.id],
@@ -252,7 +261,7 @@ export class WorldScene extends Phaser.Scene {
     this.mapVoidLid = createMapVoidLid(this);
     this.terrainLayer = new TerrainLayer(this);
     this.tileGfx = this.add.graphics().setDepth(3);
-    this.railGfx = this.add.graphics().setDepth(2.8);
+    this.railLayer = new RailLayer(this);
     this.armyGfx = this.add.graphics().setDepth(6.5);
     this.overlayGfx = this.add.graphics().setDepth(8).setScrollFactor(0);
     this.pathFlagsGfx = this.add.graphics().setDepth(7.85);
@@ -579,6 +588,8 @@ export class WorldScene extends Phaser.Scene {
       map: this.map,
       ox: OX,
       oy: OY,
+      groundArt: this.groundArt,
+      decorArt: this.decorArt,
       discovered: this.fog(),
       visible: this.visible,
       reachables: this.reachables,
@@ -587,7 +598,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private drawRails() {
-    paintRails(this.railGfx, {
+    this.railLayer.redraw({
       state: session.state,
       ox: OX,
       oy: OY,
@@ -832,7 +843,8 @@ export class WorldScene extends Phaser.Scene {
         const { sx, sy } = isoTop(x, y);
         const inDiamond = pointInIsoDiamond(wx, wy, sx, sy);
         const inTree =
-          this.map[y][x] === "forest" && pointInTreeOverlay(wx, wy, x, y, OX, OY);
+          cellShowsTrees(this.map[y][x], this.decorArt?.[y]?.[x]) &&
+          pointInTreeOverlay(wx, wy, x, y, OX, OY);
         if (!inDiamond && !inTree) continue;
         cands.push({ x, y, order: x + y, overlay: inTree && !inDiamond });
       }

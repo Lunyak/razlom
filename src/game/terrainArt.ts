@@ -8,6 +8,7 @@
  * (aerial_grass_rock, forrest_ground_01, mud_forest, rocky_trail, dirt,
  * brown_mud_03, brown_mud_leaves_01, aerial_rocks_02, rock_face).
  * Ditch / trench / khaki forest floor: generated plates, same olive-sepia grade.
+ * Roads: path refs graded in scripts/grade_road_plates.py (dirt track + mossy olive).
  */
 
 import type { Terrain } from "./world";
@@ -57,7 +58,14 @@ export type TerrainOverlayKey =
   | "overlay_ditch_nw_0"
   | "overlay_rock_0"
   | "overlay_mountain_range_0"
-  | "overlay_mountain_range_1";
+  | "overlay_mountain_range_1"
+  | "overlay_rail_ne_0"
+  | "overlay_rail_nw_0"
+  | "overlay_rail_l_0"
+  | "overlay_rail_tee_ne_0"
+  | "overlay_rail_tee_nw_0"
+  | "overlay_rail_cross_0"
+  | "overlay_rail_end_0";
 
 export type TerrainArtKey = TerrainGroundKey | TerrainOverlayKey;
 
@@ -139,6 +147,13 @@ export const TERRAIN_ART_KEYS: TerrainArtKey[] = [
   "overlay_rock_0",
   "overlay_mountain_range_0",
   "overlay_mountain_range_1",
+  "overlay_rail_ne_0",
+  "overlay_rail_nw_0",
+  "overlay_rail_l_0",
+  "overlay_rail_tee_ne_0",
+  "overlay_rail_tee_nw_0",
+  "overlay_rail_cross_0",
+  "overlay_rail_end_0",
 ];
 
 export function terrainArtPath(key: TerrainArtKey): string {
@@ -170,11 +185,42 @@ export function pickTreeOverlayKey(x: number, y: number): TerrainOverlayKey {
 
 export type EarthworkPiece = "ne" | "nw" | "pit" | "tee" | "ell";
 
+export type RailPiece = "ne" | "nw" | "ell" | "tee_ne" | "tee_nw" | "cross" | "end";
+
+/** Neighbor bits: 0=+X, 1=-X, 2=+Y, 3=-Y. */
+export function pickRailOverlayKey(piece: RailPiece): TerrainOverlayKey {
+  if (piece === "nw") return "overlay_rail_nw_0";
+  if (piece === "ell") return "overlay_rail_l_0";
+  if (piece === "tee_ne") return "overlay_rail_tee_ne_0";
+  if (piece === "tee_nw") return "overlay_rail_tee_nw_0";
+  if (piece === "cross") return "overlay_rail_cross_0";
+  if (piece === "end") return "overlay_rail_end_0";
+  return "overlay_rail_ne_0";
+}
+
+export function railPieceFromMask(mask: number): RailPiece {
+  const bits = (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
+  if (bits >= 4) return "cross";
+  if (bits === 3) {
+    if ((mask & 3) === 3) return "tee_ne";
+    if ((mask & 12) === 12) return "tee_nw";
+    return "tee_ne";
+  }
+  if (bits === 2) {
+    if ((mask & 3) === 3) return "ne";
+    if ((mask & 12) === 12) return "nw";
+    return "ell";
+  }
+  return "end";
+}
+
 export function pickTrenchOverlayKey(piece: EarthworkPiece, x: number, y: number): TerrainOverlayKey {
   if (piece === "pit") return "overlay_trench_pit_0";
   if (piece === "tee") return "overlay_trench_tee_0";
   if (piece === "ell") return y % 2 === 0 ? "overlay_trench_l_0" : "overlay_trench_l_1";
-  if (piece === "nw") return "overlay_trench_nw_0";
+  // PNG names follow the painted screen diagonal (ne = NE–SW, nw = NW–SE).
+  // Grid "ne" is a +X run (screen down-right = NW–SE) — that plate is overlay_trench_nw.
+  if (piece === "ne") return "overlay_trench_nw_0";
   return x % 2 === 0 ? "overlay_trench_ne_0" : "overlay_trench_ne_1";
 }
 
@@ -188,6 +234,66 @@ export function pickMountainRangeKey(blobIndex: number, hasPeak: boolean): Terra
   return blobIndex % 2 === 0 ? "overlay_mountain_range_0" : "overlay_mountain_range_1";
 }
 
+/** Explicit cell decor: `null` = default auto, `""` = none, key = that overlay. */
+export type MapDecorCell = TerrainOverlayKey | "" | null;
+
+export interface MapGroundMaterial {
+  key: TerrainGroundKey;
+  terrain: Terrain;
+  label: string;
+}
+
+export interface MapDecorMaterial {
+  key: TerrainOverlayKey | "";
+  terrain?: Terrain;
+  label: string;
+}
+
+/** Extra ground plates the constructor can stamp without replacing the default island look. */
+export const MAP_GROUND_MATERIALS: MapGroundMaterial[] = [
+  { key: "ground_grass_0", terrain: "grass", label: "Стерня" },
+  { key: "ground_grass_1", terrain: "grass", label: "Луг" },
+  { key: "ground_forest_0", terrain: "grass", label: "Хвоя" },
+  { key: "ground_forest_1", terrain: "grass", label: "Лесная" },
+  { key: "ground_road_0", terrain: "road", label: "Колея" },
+  { key: "ground_road_1", terrain: "road", label: "Грязь" },
+  { key: "ground_water_0", terrain: "water", label: "Пруд" },
+  { key: "ground_water_1", terrain: "water", label: "Река" },
+  { key: "ground_mountain_foot_0", terrain: "mountain_foot", label: "Осыпь" },
+  { key: "ground_mountain_0", terrain: "mountain", label: "Скала" },
+  { key: "ground_ditch_0", terrain: "ditch", label: "Ров" },
+  { key: "ground_trench_0", terrain: "trench", label: "Траншея" },
+];
+
+export const MAP_DECOR_MATERIALS: MapDecorMaterial[] = [
+  { key: "", label: "Нет" },
+  { key: "overlay_trees_0", terrain: "forest", label: "Ели" },
+  { key: "overlay_trees_1", terrain: "forest", label: "Берёзы" },
+  { key: "overlay_trees_2", terrain: "forest", label: "Пихты" },
+  { key: "overlay_trees_3", terrain: "forest", label: "Ели · поле" },
+  { key: "overlay_trees_4", terrain: "forest", label: "Берёзы · поле" },
+  { key: "overlay_trees_5", terrain: "forest", label: "Пихты · поле" },
+  { key: "overlay_rock_0", label: "Камни" },
+];
+
+export function isTreeOverlayKey(key: string | null | undefined): boolean {
+  return !!key && key.startsWith("overlay_trees_");
+}
+
+export function cellShowsTrees(terrain: Terrain, decor: MapDecorCell | undefined): boolean {
+  if (decor === "") return false;
+  if (isTreeOverlayKey(decor)) return true;
+  return decor == null && terrain === "forest";
+}
+
+export function groundMaterialByKey(key: TerrainGroundKey): MapGroundMaterial | undefined {
+  return MAP_GROUND_MATERIALS.find((m) => m.key === key);
+}
+
+export function decorMaterialByKey(key: TerrainOverlayKey | ""): MapDecorMaterial | undefined {
+  return MAP_DECOR_MATERIALS.find((m) => m.key === key);
+}
+
 /** Prompt hints for regeneration (same visual language). */
 export const TERRAIN_PROMPTS: Record<TerrainArtKey, string> = {
   ground_grass_0: `${TERRAIN_STYLE}. Wet harvested stubble field, flattened rye straw, muddy patches, dull khaki-olive, not lush`,
@@ -196,8 +302,8 @@ export const TERRAIN_PROMPTS: Record<TerrainArtKey, string> = {
   ground_forest_1: `${TERRAIN_STYLE}. Forest floor variation of the khaki field, olive-khaki wet earth, pine needles, rotting leaves, same color family as harvested stubble, no trunks, no sky`,
   ground_ditch_0: `${TERRAIN_STYLE}. Shallow 1914 communication ditch from above, wet khaki-olive clay, thrown-up earth lips, muddy water in the cut, no timber, no people`,
   ground_trench_0: `${TERRAIN_STYLE}. 1914 fighting trench from above, deeper excavation, wet khaki parapet earth, muddy floor, faint board streaks, no sandbags as objects, no people`,
-  ground_road_0: `${TERRAIN_STYLE}. Dirt cart track, two deep muddy ruts, wet clay, hoof prints, no cobblestone`,
-  ground_road_1: `${TERRAIN_STYLE}. Churned military dirt road, gravel and mud, puddles in ruts, no paving stones`,
+  ground_road_0: `${TERRAIN_STYLE}. Packed dirt cart track, wet clay and gravel grit, khaki-umber, no cobblestone`,
+  ground_road_1: `${TERRAIN_STYLE}. Overgrown mossy cart track, dark olive-khaki lichen and mud, not emerald, no paving stones`,
   ground_water_0: `${TERRAIN_STYLE}. Dark still pond, brown-black silt water, overcast reflection, no turquoise, no blue`,
   ground_water_1: `${TERRAIN_STYLE}. Slow dark river surface, olive-black water, silt streaks, no cyan, no sparkle`,
   ground_mountain_foot_0: `${TERRAIN_STYLE}. Wet slate scree from above, dark grey-brown stones, mud between rocks, no snow`,
@@ -226,4 +332,11 @@ export const TERRAIN_PROMPTS: Record<TerrainArtKey, string> = {
   overlay_rock_0: `${TERRAIN_OVERLAY_STYLE}. Small cluster of wet slate rocks, dark grey-brown, no plants`,
   overlay_mountain_range_0: `${TERRAIN_OVERLAY_STYLE}. One continuous Carpathian ridge, isometric three-quarter view, wet slate scree, a few dark spruce, irregular silhouette, not separate cubes`,
   overlay_mountain_range_1: `${TERRAIN_OVERLAY_STYLE}. Compact wet slate peak cluster, two or three summits as one mass, sparse dark fir`,
+  overlay_rail_ne_0: `${TERRAIN_OVERLAY_STYLE}. Single 1914 railway, gravel ballast, dark wooden sleepers, silver rails, isometric down-right diagonal, no snow`,
+  overlay_rail_nw_0: `${TERRAIN_OVERLAY_STYLE}. Single 1914 railway, gravel ballast, dark wooden sleepers, silver rails, isometric down-left diagonal, no snow`,
+  overlay_rail_l_0: `${TERRAIN_OVERLAY_STYLE}. 90-degree railway curve, gravel ballast, wooden sleepers, silver rails, isometric, no snow`,
+  overlay_rail_tee_ne_0: `${TERRAIN_OVERLAY_STYLE}. Railway T-junction, through-track down-right plus branch, gravel ballast, no snow`,
+  overlay_rail_tee_nw_0: `${TERRAIN_OVERLAY_STYLE}. Railway T-junction, through-track down-left plus branch, gravel ballast, no snow`,
+  overlay_rail_cross_0: `${TERRAIN_OVERLAY_STYLE}. Railway 4-way crossing, gravel ballast, wooden sleepers, silver rails, isometric, no snow`,
+  overlay_rail_end_0: `${TERRAIN_OVERLAY_STYLE}. Railway dead-end with timber buffer beam, gravel ballast, isometric, no snow`,
 };

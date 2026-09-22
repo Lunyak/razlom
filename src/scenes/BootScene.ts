@@ -14,6 +14,7 @@ import { shouldOpenPanelGallery } from "./PanelGalleryTestScene";
 import { shouldOpenBattleMechanicsTest } from "./BattleMechanicsTestScene";
 import { shouldOpenBattleLookTest } from "./BattleLookTestScene";
 import { shouldOpenBattleLayoutTest } from "./BattleLayoutTestScene";
+import { shouldOpenBattleTable3dTest } from "./BattleTable3dTestScene";
 import { loadBuildingOverlayLayoutFromDisk } from "../game/buildingOverlayLayout";
 import { onViewResize, viewH, viewSize, viewW } from "../ui/viewport";
 import {
@@ -122,6 +123,10 @@ export class BootScene extends Phaser.Scene {
       window.location.hash = "test/battle-screen";
       this.scene.start("BattleLookTest");
     });
+    this.addButton("Экран боя · стол 3D", "ghost", () => {
+      window.location.hash = "test/battle-table3d";
+      this.scene.start("BattleTable3dTest");
+    });
     this.addButton("Тест · редактор построек РИ", "ghost", () => {
       window.location.hash = "test/buildings";
       this.scene.start("RiBuildingsTest");
@@ -171,9 +176,11 @@ export class BootScene extends Phaser.Scene {
               ? "BattleMechanicsTest"
               : shouldOpenRiBuildingsTest()
               ? "RiBuildingsTest"
-              : shouldOpenEditor()
-                ? "Editor"
-                : null;
+              : shouldOpenBattleTable3dTest()
+                ? "BattleTable3dTest"
+                : shouldOpenEditor()
+                  ? "Editor"
+                  : null;
     if (jump) this.time.delayedCall(0, () => this.scene.start(jump));
     else this.phonograph = new MenuPhonograph(this);
   }

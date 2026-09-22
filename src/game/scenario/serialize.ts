@@ -1,4 +1,5 @@
 import type { Terrain } from "../world";
+import type { MapDecorCell, TerrainGroundKey } from "../terrainArt";
 import { createBlankMap } from "./mapgen";
 import { clonePlot, sanitizePlot, type PlotSequence } from "./plot";
 import type {
@@ -21,6 +22,8 @@ export interface SerializedMapDef {
   cols: number;
   rows: number;
   terrain: Terrain[][];
+  groundArt?: (TerrainGroundKey | null)[][];
+  decorArt?: MapDecorCell[][];
   cities: CitySpawn[];
   sites?: Omit<MapSite, "mapId">[];
   armies?: ArmySpawn[];
@@ -49,6 +52,41 @@ export function cloneTerrain(terrain: Terrain[][]): Terrain[][] {
   return terrain.map((row) => [...row]);
 }
 
+function cloneGrid<T>(grid: T[][] | undefined): T[][] | undefined {
+  if (!grid) return undefined;
+  return grid.map((row) => [...row]);
+}
+
+function resizeGrid<T>(grid: T[][] | undefined, cols: number, rows: number, fill: T): T[][] | undefined {
+  if (!grid) return undefined;
+  const next = Array.from({ length: rows }, () => Array.from({ length: cols }, () => fill));
+  for (let y = 0; y < Math.min(rows, grid.length); y++) {
+    for (let x = 0; x < Math.min(cols, grid[y]?.length ?? 0); x++) {
+      next[y][x] = grid[y][x];
+    }
+  }
+  return next;
+}
+
+function serializeArtGrid<T>(grid: T[][] | undefined): T[][] | undefined {
+  if (!grid?.some((row) => row.some((cell) => cell != null))) return undefined;
+  return cloneGrid(grid);
+}
+
+function createArtGrid<T>(cols: number, rows: number, fill: T): T[][] {
+  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => fill));
+}
+
+/** Allocate paint layers so the editor can stamp a cell without replacing the default look. */
+export function ensureMapPaintLayers(map: MapDef): void {
+  if (!map.groundArt || map.groundArt.length !== map.rows) {
+    map.groundArt = createArtGrid(map.cols, map.rows, null);
+  }
+  if (!map.decorArt || map.decorArt.length !== map.rows) {
+    map.decorArt = createArtGrid(map.cols, map.rows, null);
+  }
+}
+
 export function resolveMapTerrain(map: MapDef): Terrain[][] {
   if (map.terrain && map.terrain.length === map.rows) {
     return cloneTerrain(map.terrain);
@@ -67,6 +105,8 @@ export function materializeMap(map: MapDef): MapDef {
     cols: map.cols,
     rows: map.rows,
     terrain,
+    groundArt: cloneGrid(map.groundArt),
+    decorArt: cloneGrid(map.decorArt),
     cities: map.cities.map((c) => ({ ...c, income: { ...c.income }, buildings: c.buildings ? [...c.buildings] : undefined })),
     sites: map.sites?.map((s) => ({ ...s })),
     armies: map.armies?.map((a) => ({
@@ -100,6 +140,8 @@ export function serializeMap(map: MapDef): SerializedMapDef {
     cols: map.cols,
     rows: map.rows,
     terrain,
+    groundArt: serializeArtGrid(map.groundArt),
+    decorArt: serializeArtGrid(map.decorArt),
     cities: map.cities,
     sites: map.sites,
     armies: map.armies,
@@ -135,6 +177,8 @@ export function deserializeMap(raw: SerializedMapDef): MapDef {
     cols: raw.cols,
     rows: raw.rows,
     terrain,
+    groundArt: cloneGrid(raw.groundArt),
+    decorArt: cloneGrid(raw.decorArt),
     cities: raw.cities ?? [],
     sites: raw.sites,
     armies: raw.armies,
@@ -235,6 +279,8 @@ export function resizeMapTerrain(
     cols,
     rows,
     terrain,
+    groundArt: resizeGrid(map.groundArt, cols, rows, null),
+    decorArt: resizeGrid(map.decorArt, cols, rows, null),
     cities: clip(map.cities),
     sites: clip(map.sites),
     armies: clip(map.armies),

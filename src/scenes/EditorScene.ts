@@ -1,18 +1,14 @@
 import Phaser from "phaser";
 import type { FactionId } from "../game/data";
 import { RI_FIELD_KHAKI } from "../game/factionVisual";
-import {
-  computeIsoOrigin,
-  isoCenter,
-  screenToGrid,
-  TERRAIN_LABEL,
-} from "../game/iso";
+import { computeIsoOrigin, isoCenter, screenToGrid } from "../game/iso";
 import { TerrainLayer } from "../game/terrainLayer";
 import { WORLD_ASSETS, attachOptionalLoadPump, queueAssetPack } from "../game/assetPacks";
 import {
   createEmptyMap,
   createEmptyScenario,
   downloadScenarioJson,
+  ensureMapPaintLayers,
   getScenario,
   isBuiltinScenario,
   materializeScenario,
@@ -26,7 +22,14 @@ import {
 } from "../game/scenario";
 import { playScenario } from "../game/session";
 import { SITE_COLOR, SITE_KINDS, SITE_LABEL, type SiteKind } from "../game/sites";
-import type { Terrain } from "../game/world";
+import {
+  MAP_DECOR_MATERIALS,
+  MAP_GROUND_MATERIALS,
+  isTreeOverlayKey,
+  type MapDecorMaterial,
+  type MapGroundMaterial,
+} from "../game/terrainArt";
+import { MapMaterialPalette, MAP_PALETTE_H, type MapMaterialPick } from "../ui/MapMaterialPalette";
 import type { ArmySpawn, CitySpawn } from "../game/scenario/types";
 import { onViewResize, viewH, viewW } from "../ui/viewport";
 import { ScreenCharcoalFrame, type CharcoalChrome } from "../ui/screenCharcoalFrame";
@@ -45,15 +48,17 @@ import {
 
 type Tool = "terrain" | "city" | "site" | "army" | "erase" | "select";
 
-const TERRAINS: Terrain[] = [
-  "grass",
-  "forest",
-  "road",
-  "water",
-  "mountain",
-  "mountain_foot",
-  "ditch",
-  "trench",
+const SIDEBAR_W = 250;
+
+const KEY_MATERIALS: MapMaterialPick[] = [
+  { kind: "ground", material: MAP_GROUND_MATERIALS[0] },
+  { kind: "decor", material: MAP_DECOR_MATERIALS[1] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[4] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[6] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[9] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[8] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[10] },
+  { kind: "ground", material: MAP_GROUND_MATERIALS[11] },
 ];
 const FACTIONS: (FactionId | null)[] = [
   "ri",
@@ -79,7 +84,9 @@ export class EditorScene extends Phaser.Scene {
   private scenario!: ScenarioDef;
   private mapIndex = 0;
   private tool: Tool = "terrain";
-  private brush: Terrain = "grass";
+  private brushKind: "ground" | "decor" = "ground";
+  private groundBrush: MapGroundMaterial = MAP_GROUND_MATERIALS[0];
+  private decorBrush: MapDecorMaterial = MAP_DECOR_MATERIALS[1];
   private siteKind: SiteKind = "ruins";
   private armyMode: "player" | "ordo" | "neutral" = "player";
   private cityFaction: FactionId | null = "ri";
@@ -94,7 +101,7 @@ export class EditorScene extends Phaser.Scene {
   private helpText!: Phaser.GameObjects.Text;
   private titleText!: Phaser.GameObjects.Text;
   private toolButtons: Phaser.GameObjects.Text[] = [];
-  private terrainButtons: { obj: Phaser.GameObjects.Text; terrain: Terrain }[] = [];
+  private materialPalette!: MapMaterialPalette;
   private screenFrame?: ScreenCharcoalFrame;
   private mapVoid?: Phaser.GameObjects.TileSprite;
   private mapVoidLid?: Phaser.GameObjects.Image;
@@ -162,6 +169,7 @@ export class EditorScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     this.buildToolbar();
+    this.materialPalette = new MapMaterialPalette(this, (pick) => this.applyMaterialPick(pick));
     this.plotUi = new PlotConstructor(this, {
       getScenario: () => this.scenario,
       getMapId: () => this.activeMap().id,
@@ -180,12 +188,14 @@ export class EditorScene extends Phaser.Scene {
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (this.plotPlayer.isPlaying()) return;
       if (this.plotUi.isOpen() && p.x > viewW(this) - PLOT_PANEL_W) return;
-      if (p.x < 250) return;
+      if (p.x < SIDEBAR_W) return;
+      if (this.materialPalette.contains(p.x, p.y)) return;
       this.painting = true;
       this.handlePaint(p.worldX, p.worldY, true);
     });
     this.input.on("pointermove", (p: Phaser.Input.Pointer) => {
-      if (!this.painting || p.x < 250) return;
+      if (!this.painting || p.x < SIDEBAR_W) return;
+      if (this.materialPalette.contains(p.x, p.y)) return;
       if (this.plotUi.isOpen() && p.x > viewW(this) - PLOT_PANEL_W) return;
       this.handlePaint(p.worldX, p.worldY, false);
     });
@@ -205,11 +215,23 @@ export class EditorScene extends Phaser.Scene {
     return `${prefix}_${this.uid}`;
   }
 
+  private brushLabel(): string {
+    if (this.brushKind === "decor") return `Декор: ${this.decorBrush.label}`;
+    return `Текстура: ${this.groundBrush.label}`;
+  }
+
+  private applyMaterialPick(pick: MapMaterialPick): void {
+    this.tool = "terrain";
+    this.brushKind = pick.kind;
+    if (pick.kind === "ground") this.groundBrush = pick.material;
+    else this.decorBrush = pick.material;
+    this.setStatus(this.brushLabel());
+    this.refreshHud();
+  }
+
   private buildToolbar() {
     for (const b of this.toolButtons) b.destroy();
     this.toolButtons = [];
-    for (const b of this.terrainButtons) b.obj.destroy();
-    this.terrainButtons = [];
 
     const addBtn = (y: number, label: string, fn: () => void, color = "#c9a227") => {
       const t = this.add
@@ -238,37 +260,9 @@ export class EditorScene extends Phaser.Scene {
     let y = 248;
     addBtn(y, "[ Террайн ]", () => {
       this.tool = "terrain";
-      this.setStatus(`Кисть: ${TERRAIN_LABEL[this.brush]}`);
+      this.setStatus(this.brushLabel());
     });
     y += 22;
-    TERRAINS.forEach((terrain, i) => {
-      const col = i < 4 ? 0 : 1;
-      const row = i % 4;
-      const bx = 16 + col * 118;
-      const by = y + row * 20;
-      const t = this.add
-        .text(bx, by, `${i + 1}  ${TERRAIN_LABEL[terrain]}`, {
-          fontFamily: "Georgia, serif",
-          fontSize: "13px",
-          color: "#c9a227",
-        })
-        .setDepth(22)
-        .setScrollFactor(0)
-        .setInteractive({
-          useHandCursor: true,
-          hitArea: new Phaser.Geom.Rectangle(-4, -2, 110, 18),
-          hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-        });
-      t.on("pointerdown", (p: Phaser.Input.Pointer) => {
-        p.event.stopPropagation();
-        this.brush = terrain;
-        this.tool = "terrain";
-        this.setStatus(`Кисть: ${TERRAIN_LABEL[terrain]}`);
-        this.refreshHud();
-      });
-      this.terrainButtons.push({ obj: t, terrain });
-    });
-    y += 88;
     addBtn(y, "[ Город ]", () => {
       this.tool = "city";
       this.setStatus("Клик — город (C цикл фракции)");
@@ -354,10 +348,8 @@ export class EditorScene extends Phaser.Scene {
   private onKey(e: KeyboardEvent) {
     const k = e.key.toLowerCase();
     if (k >= "1" && k <= "8") {
-      this.brush = TERRAINS[Number(k) - 1];
-      this.tool = "terrain";
-      this.setStatus(`Кисть: ${TERRAIN_LABEL[this.brush]}`);
-      this.refreshHud();
+      const pick = KEY_MATERIALS[Number(k) - 1];
+      if (pick) this.applyMaterialPick(pick);
       return;
     }
     if (k === "t") {
@@ -524,10 +516,7 @@ export class EditorScene extends Phaser.Scene {
     }
 
     if (this.tool === "terrain") {
-      const terrain = resolveMapTerrain(map);
-      terrain[gy][gx] = this.brush;
-      map.terrain = terrain;
-      map.buildTerrain = () => terrain.map((r) => [...r]);
+      this.paintMaterial(map, gx, gy);
       this.redrawMap();
       return;
     }
@@ -553,6 +542,31 @@ export class EditorScene extends Phaser.Scene {
       this.placeArmy(gx, gy);
       this.redrawMap();
     }
+  }
+
+  private paintMaterial(map: MapDef, x: number, y: number): void {
+    const terrain = resolveMapTerrain(map);
+    map.terrain = terrain;
+    ensureMapPaintLayers(map);
+    const ground = map.groundArt!;
+    const decor = map.decorArt!;
+    if (this.brushKind === "ground") {
+      const prev = terrain[y][x];
+      const next = this.groundBrush.terrain;
+      terrain[y][x] = next;
+      ground[y][x] = this.groundBrush.key;
+      const blocksDecor = next === "water" || next === "mountain" || next === "mountain_foot";
+      if (blocksDecor) {
+        decor[y][x] = "";
+      } else if (prev === "forest" && next !== "forest") {
+        const d = decor[y][x];
+        if (d == null || isTreeOverlayKey(d)) decor[y][x] = "";
+      }
+    } else {
+      decor[y][x] = this.decorBrush.key;
+      if (this.decorBrush.terrain) terrain[y][x] = this.decorBrush.terrain;
+    }
+    map.buildTerrain = () => terrain.map((r) => [...r]);
   }
 
   private eraseAt(x: number, y: number) {
@@ -649,7 +663,7 @@ export class EditorScene extends Phaser.Scene {
   private charcoalChrome(): CharcoalChrome {
     const w = viewW(this);
     const h = viewH(this);
-    return { box: { x: 250, y: 0, w: Math.max(80, w - 250), h } };
+    return { box: { x: SIDEBAR_W, y: 0, w: Math.max(80, w - SIDEBAR_W), h } };
   }
 
   private refreshHud() {
@@ -657,11 +671,17 @@ export class EditorScene extends Phaser.Scene {
     const h = viewH(this);
     this.hudGfx.clear();
     this.hudGfx.fillStyle(0x120e0a, 0.92);
-    this.hudGfx.fillRect(0, 0, 250, h);
+    this.hudGfx.fillRect(0, 0, SIDEBAR_W, h);
     this.hudGfx.lineStyle(1, 0x5a4a30, 1);
-    this.hudGfx.strokeRect(0, 0, 250, h);
+    this.hudGfx.strokeRect(0, 0, SIDEBAR_W, h);
     this.titleText.setX(viewW(this) / 2);
-    this.statusText.setY(h - 30);
+    this.statusText.setY(h - MAP_PALETTE_H - 22);
+    const plotW = this.plotUi?.isOpen() ? PLOT_PANEL_W : 0;
+    this.materialPalette?.layout(SIDEBAR_W, h - MAP_PALETTE_H, Math.max(80, viewW(this) - SIDEBAR_W - plotW), MAP_PALETTE_H);
+    this.materialPalette?.setSelected(
+      this.brushKind,
+      this.brushKind === "ground" ? this.groundBrush.key : this.decorBrush.key,
+    );
 
     this.titleText.setText(
       `Редактор · ${this.scenario.name} · ${map.name} (${map.cols}×${map.rows})`,
@@ -672,28 +692,32 @@ export class EditorScene extends Phaser.Scene {
       [
         "Порядок карт = цепочка миссий",
         `Инструмент: ${this.tool}`,
-        `Кисть: ${TERRAIN_LABEL[this.brush]}`,
+        this.brushLabel(),
         `Город фракция: ${this.cityFaction ?? "—"} (C)`,
         `Объект: ${SITE_LABEL[this.siteKind]} (O)`,
         `Армия: ${this.armyMode} (A)`,
         `Миссия: ${this.mapIndex + 1}/${this.scenario.maps.length}${startMark}`,
         `Цель: ${map.win?.type ?? this.scenario.win.type}`,
         "",
-        "T/C/O/A/E  [ ] миссии",
-        "P сюжет  Ctrl+S сохранить",
+        "1–8 кисть  T/C/O/A/E",
+        "[ ] миссии  P сюжет",
+        "Ctrl+S сохранить",
       ].join("\n"),
     );
 
-    for (const { obj, terrain } of this.terrainButtons) {
-      const on = this.tool === "terrain" && this.brush === terrain;
-      obj.setColor(on ? "#fff0c0" : "#c9a227");
-    }
   }
 
   private redrawMap() {
     const map = this.activeMap();
     const plotW = this.plotUi?.isOpen() ? PLOT_PANEL_W : 0;
-    const origin = computeIsoOrigin(map.cols, map.rows, viewW(this) - plotW, 56, viewH(this) - 40, 250);
+    const origin = computeIsoOrigin(
+      map.cols,
+      map.rows,
+      viewW(this) - plotW,
+      56,
+      viewH(this) - MAP_PALETTE_H - 8,
+      SIDEBAR_W,
+    );
     this.ox = origin.ox;
     this.oy = origin.oy;
     const terrain = resolveMapTerrain(map);
@@ -702,6 +726,8 @@ export class EditorScene extends Phaser.Scene {
       map: terrain,
       ox: this.ox,
       oy: this.oy,
+      groundArt: map.groundArt,
+      decorArt: map.decorArt,
     });
     this.overlayGfx.clear();
     this.children.getAll().forEach((obj) => {

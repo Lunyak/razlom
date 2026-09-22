@@ -25,13 +25,15 @@ import {
 } from "./iso";
 import {
   GROUND_SHEET,
-  GROUND_VARIANTS,
+  cellShowsTrees,
+  isTreeOverlayKey,
   pickDitchOverlayKey,
   pickGroundKey,
   pickMountainRangeKey,
   pickTrenchOverlayKey,
   pickTreeOverlayKey,
   type EarthworkPiece,
+  type MapDecorCell,
   type TerrainGroundKey,
 } from "./terrainArt";
 import type { Terrain } from "./world";
@@ -78,13 +80,16 @@ export function pointInTreeOverlay(
   return wx >= left && wx <= left + w && wy >= top && wy <= top + h;
 }
 const LAYER_KEY = "__terrain_island_v1";
-const GROUND_TYPES: Terrain[] = ["grass", "forest", "road", "water"];
 const MOUNTAIN_PAD = 0x2a2620;
 
 export interface TerrainLayerView {
   map: Terrain[][];
   ox: number;
   oy: number;
+  /** Per-cell ground plate. Missing / null keeps the default island sheet. */
+  groundArt?: (TerrainGroundKey | null)[][];
+  /** Per-cell overlay. `null` = auto, `""` = none, key = that cutout. */
+  decorArt?: MapDecorCell[][];
   discovered?: boolean[][];
   visible?: boolean[][];
   reachables?: { has(key: string): boolean };
@@ -151,7 +156,20 @@ export class TerrainLayer {
       const terrain = view.map[y][x];
       const inVision = view.visible ? !!view.visible[y]?.[x] : true;
       const { sx, sy } = isoTop(x, y, view.ox, view.oy);
-      if (terrain === "forest") {
+      const decor = view.decorArt?.[y]?.[x];
+      if (decor) {
+        const tree = isTreeOverlayKey(decor);
+        this.placeOverlay(
+          decor,
+          x,
+          y,
+          view.ox,
+          view.oy,
+          inVision,
+          tree ? TREE_OVERLAY_HEIGHT : 36,
+          tree ? TREE_OVERLAY_LIFT : 4,
+        );
+      } else if (cellShowsTrees(terrain, decor)) {
         this.placeOverlay(
           pickTreeOverlayKey(x, y),
           x,
@@ -208,13 +226,15 @@ export class TerrainLayer {
 
     const layer = ensureLayerCanvas(this.scene, bounds.w, bounds.h);
     if (!layer) return;
-    for (const terrain of GROUND_TYPES) {
-      const sheets =
-        terrain === "forest" ? GROUND_VARIANTS.forest : [GROUND_SHEET[terrain]];
-      for (const sheet of sheets) {
-        if (!paintTerrainIsland(this.scene, layer, bounds, view, cells, terrain, sheet)) continue;
-        this.plate.draw(LAYER_KEY, 0, 0);
-      }
+    const sheets = new Set<TerrainGroundKey>();
+    for (const { x, y } of cells) {
+      if (view.discovered && !view.discovered[y]?.[x]) continue;
+      const key = cellGroundKey(view, x, y);
+      if (key) sheets.add(key);
+    }
+    for (const sheet of sheets) {
+      if (!paintTerrainIsland(this.scene, layer, bounds, view, cells, sheet)) continue;
+      this.plate.draw(LAYER_KEY, 0, 0);
     }
   }
 
@@ -482,7 +502,7 @@ function earthworkLinkSprite(
   if (dx === 1 && dy === 0) {
     return {
       key: pickTrenchOverlayKey("ne", x, y),
-      rot: 0,
+      rot: (7 * Math.PI) / 180,
       w: TILE_W * 1.22 * s,
       h: TILE_H * 1.15 * s,
     };
@@ -590,31 +610,36 @@ function ensureLayerCanvas(scene: Phaser.Scene, w: number, h: number): Phaser.Te
   return scene.textures.createCanvas(LAYER_KEY, w, h);
 }
 
+function cellGroundKey(view: TerrainLayerView, x: number, y: number): TerrainGroundKey | null {
+  const override = view.groundArt?.[y]?.[x];
+  if (override) return override;
+  const terrain = view.map[y][x];
+  if (terrain === "mountain" || terrain === "mountain_foot") return null;
+  if (terrain === "forest" || terrain === "road") return pickGroundKey(terrain, x, y);
+  if (terrain === "grass" || terrain === "ditch" || terrain === "trench") {
+    return GROUND_SHEET.grass;
+  }
+  return GROUND_SHEET[terrain];
+}
+
 function paintTerrainIsland(
   scene: Phaser.Scene,
   layer: Phaser.Textures.CanvasTexture,
   bounds: { left: number; top: number; w: number; h: number },
   view: TerrainLayerView,
   cells: { x: number; y: number }[],
-  terrain: Terrain,
   sheet: TerrainGroundKey,
 ): boolean {
   const ctx = layer.getContext();
   ctx.clearRect(0, 0, layer.width, layer.height);
   const members = cells.filter((c) => {
-    const cell = view.map[c.y][c.x];
-    const painted =
-      terrain === "grass"
-        ? cell === "grass" || cell === "forest" || isEarthwork(cell)
-        : cell === terrain && cell !== "forest";
-    if (!painted) return false;
     if (view.discovered && !view.discovered[c.y]?.[c.x]) return false;
-    if (terrain === "forest" && pickGroundKey(terrain, c.x, c.y) !== sheet) return false;
-    return true;
+    return cellGroundKey(view, c.x, c.y) === sheet;
   });
   if (members.length === 0) return false;
 
-  const color = `#${TERRAIN_COLOR[terrain].toString(16).padStart(6, "0")}`;
+  const sample = view.map[members[0].y][members[0].x];
+  const color = `#${TERRAIN_COLOR[sample].toString(16).padStart(6, "0")}`;
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#ffffff";
