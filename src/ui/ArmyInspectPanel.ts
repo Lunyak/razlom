@@ -16,7 +16,7 @@ import {
 } from "../game/data";
 import { armyInfoCardTextureKey, portraitTextureKey } from "../game/portraits";
 import { classLabel } from "../game/heroClasses";
-import { veilPresenceLabel } from "../game/dayNight";
+import { marchPointsLabel, veilPresenceLabel } from "../game/dayNight";
 import { armySupply, formatSupplyStatus } from "../game/rails";
 import { GlassPhotoFrame } from "./GlassPhotoFrame";
 import {
@@ -314,7 +314,7 @@ export class ArmyInspectPanel {
 
     if (army.isMissionary) {
       lines.push(`миссионер`);
-      lines.push(`ОД ${army.movesLeft}`);
+      lines.push(`ОД ${marchPointsLabel(army.movesLeft)}`);
       lines.push("поднимает могилы на карте");
       return lines.join("\n");
     }
@@ -322,7 +322,7 @@ export class ArmyInspectPanel {
     if (army.isNightHero) {
       lines.push(`ночной герой`);
       lines.push(`${army.hero.name} · ${classLabel(army.hero)}`);
-      lines.push(`ОД ${army.movesLeft}`);
+      lines.push(`ОД ${marchPointsLabel(army.movesLeft)}`);
       lines.push("ходит ночью · бьётся только с ночным и общим");
       return lines.join("\n");
     }
@@ -333,7 +333,7 @@ export class ArmyInspectPanel {
     } else {
       lines.push(`${army.hero.name} · ${classLabel(army.hero)} · ур.${army.hero.level}`);
       const maxMoves = armyMaxMoves(army);
-      lines.push(`ОД ${army.movesLeft}/${maxMoves}   XP ${army.hero.xp}/${army.hero.xpToNext}`);
+      lines.push(`ОД ${marchPointsLabel(army.movesLeft, maxMoves)}   XP ${army.hero.xp}/${army.hero.xpToNext}`);
       if (army.isPlayer) {
         const limit = leadershipLimit(army.hero);
         const alive = livingUnits(army).length;
@@ -362,7 +362,7 @@ export class ArmyInspectPanel {
 
     if (army.isMissionary) {
       lines.push(`Миссионер · ${faction}`);
-      lines.push(`ОД ${army.movesLeft}`);
+      lines.push(`ОД ${marchPointsLabel(army.movesLeft)}`);
       lines.push("Поднимает могилы на карте.");
       return lines.join("\n");
     }
@@ -370,7 +370,7 @@ export class ArmyInspectPanel {
     if (army.isNightHero) {
       lines.push(`Ночной герой · ${faction}`);
       lines.push(`${army.hero.name} · ${classLabel(army.hero)}`);
-      lines.push(`ОД ${army.movesLeft}`);
+      lines.push(`ОД ${marchPointsLabel(army.movesLeft)}`);
       lines.push("Ходит ночью. Бьётся с ночными и общими отрядами, не с дневными.");
       return lines.join("\n");
     }
@@ -386,7 +386,7 @@ export class ArmyInspectPanel {
     if (!army.isPlayer) lines.push(veilPresenceLabel(army));
     lines.push(`${army.hero.name} · ${classLabel(army.hero)} · ур.${army.hero.level}`);
     const maxMoves = armyMaxMoves(army);
-    lines.push(`ОД ${army.movesLeft}/${maxMoves}`);
+    lines.push(`ОД ${marchPointsLabel(army.movesLeft, maxMoves)}`);
     lines.push(`XP ${army.hero.xp}/${army.hero.xpToNext}`);
     if (army.isPlayer) {
       const limit = leadershipLimit(army.hero);

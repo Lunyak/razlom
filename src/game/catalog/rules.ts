@@ -1,5 +1,9 @@
 /** Neighbouring balance numbers that are not a unit/building/spell row. */
 
+/** Temporary, while looking over the map. Player stacks that may march do not run out of steps. */
+export const EXPLORE_UNLIMITED_MARCH = true;
+export const EXPLORE_MARCH_BUDGET = 9999;
+
 export const MOVES_HERO_ALIVE = 3;
 export const MOVES_HERO_DEAD = 1;
 

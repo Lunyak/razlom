@@ -27,12 +27,9 @@ import {
   GROUND_SHEET,
   cellShowsTrees,
   isTreeOverlayKey,
-  pickDitchOverlayKey,
   pickGroundKey,
   pickMountainRangeKey,
-  pickTrenchOverlayKey,
   pickTreeOverlayKey,
-  type EarthworkPiece,
   type MapDecorCell,
   type TerrainGroundKey,
 } from "./terrainArt";
@@ -40,18 +37,16 @@ import type { Terrain } from "./world";
 
 const FOG_TINT = 0x5c574e;
 const UNSEEN_ALPHA = 0.82;
-const EARTHWORK_ORTHO: ReadonlyArray<readonly [number, number]> = [
+/** Ortho runs follow the diamond; (1,-1) is screen-horizontal, (1,1) screen-vertical. */
+const EARTHWORK_DIRS: ReadonlyArray<readonly [number, number]> = [
   [1, 0],
   [-1, 0],
   [0, 1],
   [0, -1],
-];
-/** Unique edges: iso diagonals plus screen-axis (painted "visual" lines). */
-const EARTHWORK_LINKS: ReadonlyArray<readonly [number, number]> = [
-  [1, 0],
-  [0, 1],
-  [1, 1],
   [1, -1],
+  [-1, 1],
+  [1, 1],
+  [-1, -1],
 ];
 const TRENCH_BANK = 0xb8a46a;
 const TRENCH_LIP = 0xd4c48a;
@@ -275,10 +270,16 @@ export class TerrainLayer {
     });
   }
 
+  /**
+   * Trench plates are top-down paintings. The map is 2:1 iso, so a stamped
+   * PNG cannot share the diamond angle or meet the next cell. The cut is drawn
+   * from center to center instead.
+   */
   private placeEarthworks(view: TerrainLayerView): void {
     const gfx = this.takeGfx();
     const rows = view.map.length;
     const cols = view.map[0]?.length ?? 0;
+
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const kind = earthworkAt(view.map, x, y);
@@ -288,99 +289,18 @@ export class TerrainLayer {
         const fade = inVision ? 1 : 0.42;
         const deep = kind === "trench";
         let links = 0;
-        for (const [dx, dy] of EARTHWORK_LINKS) {
+        for (const [dx, dy] of EARTHWORK_DIRS) {
           const nx = x + dx;
           const ny = y + dy;
-          const other = earthworkAt(view.map, nx, ny);
-          if (!other) continue;
+          if (!earthworkAt(view.map, nx, ny)) continue;
           if (view.discovered && !view.discovered[ny]?.[nx]) continue;
           links += 1;
-          const a = isoCenter(x, y, view.ox, view.oy);
-          const b = isoCenter(nx, ny, view.ox, view.oy);
-          paintEarthworkLink(
-            gfx,
-            x,
-            y,
-            nx,
-            ny,
-            view.ox,
-            view.oy,
-            deep || other === "trench",
-            fade * 0.55,
-          );
-          const spec = earthworkLinkSprite(dx, dy, x, y, deep || other === "trench");
-          this.placeEarthworkSprite(
-            spec.key,
-            (a.cx + b.cx) / 2,
-            (a.cy + b.cy) / 2,
-            spec.rot,
-            spec.w,
-            spec.h,
-            inVision,
-          );
+          if (nx < x || (nx === x && ny < y)) continue;
+          paintEarthworkLink(gfx, x, y, nx, ny, view.ox, view.oy, deep, fade);
         }
-        for (const [dx, dy] of [
-          [-1, 0],
-          [0, -1],
-          [-1, -1],
-          [-1, 1],
-        ] as const) {
-          if (earthworkAt(view.map, x + dx, y + dy)) links += 1;
-        }
-        const mask = earthworkMask(view.map, x, y);
-        const piece = earthworkPiece(mask);
-        const { cx, cy } = isoCenter(x, y, view.ox, view.oy);
-        if (links === 0) {
-          const key =
-            kind === "trench"
-              ? pickTrenchOverlayKey("pit", x, y)
-              : pickDitchOverlayKey("pit", x, y);
-          const size = earthworkSpriteSize("pit", deep);
-          const placed = this.placeEarthworkSprite(key, cx, cy, 0, size.w, size.h, inVision);
-          if (!placed) paintEarthworkNode(gfx, x, y, view.ox, view.oy, deep, fade);
-          continue;
-        }
-        if (piece === "ell" || piece === "tee") {
-          const key =
-            kind === "trench"
-              ? pickTrenchOverlayKey(piece, x, y)
-              : pickDitchOverlayKey(piece, x, y);
-          const size = earthworkSpriteSize(piece, deep);
-          this.placeEarthworkSprite(
-            key,
-            cx,
-            cy,
-            0,
-            size.w * 0.82,
-            size.h * 0.82,
-            inVision,
-            earthworkFlipX(mask),
-            earthworkFlipY(mask),
-          );
-        }
+        paintEarthworkJoint(gfx, x, y, view.ox, view.oy, deep, fade, links === 0);
       }
     }
-  }
-
-  private placeEarthworkSprite(
-    srcKey: string,
-    cx: number,
-    cy: number,
-    rotation: number,
-    displayW: number,
-    displayH: number,
-    inVision: boolean,
-    flipX = false,
-    flipY = false,
-  ): boolean {
-    const cut = ensureCutout(this.scene, srcKey);
-    if (!cut) return false;
-    const img = this.takeImage(cut, cx, cy, 0.5, 0.5);
-    img.setDisplaySize(displayW, displayH);
-    img.setRotation(rotation);
-    img.setFlip(flipX, flipY);
-    applyFog(img, inVision);
-    return true;
   }
 
   private placeOverlay(
@@ -455,73 +375,12 @@ function earthworkAt(map: Terrain[][], x: number, y: number): "ditch" | "trench"
   return cell && isEarthwork(cell) ? cell : null;
 }
 
-function earthworkMask(map: Terrain[][], x: number, y: number): number {
-  let mask = 0;
-  EARTHWORK_ORTHO.forEach(([dx, dy], i) => {
-    if (earthworkAt(map, x + dx, y + dy)) mask |= 1 << i;
-  });
-  return mask;
+function earthworkWidths(deep: boolean): { bank: number; floor: number } {
+  return deep ? { bank: 14, floor: 7 } : { bank: 10, floor: 5 };
 }
 
-function earthworkPiece(mask: number): EarthworkPiece {
-  const bits = (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
-  if (bits >= 3) return "tee";
-  if (bits === 2) {
-    if ((mask & 3) === 3) return "ne";
-    if ((mask & 12) === 12) return "nw";
-    return "ell";
-  }
-  if (bits === 1) return mask & 3 ? "ne" : "nw";
-  return "pit";
-}
-
-function earthworkSpriteSize(piece: EarthworkPiece, deep: boolean): { w: number; h: number } {
-  const s = deep ? 1 : 0.86;
-  if (piece === "pit") return { w: TILE_W * 0.98 * s, h: TILE_H * 1.12 * s };
-  if (piece === "tee") return { w: TILE_W * 1.62 * s, h: TILE_H * 1.55 * s };
-  if (piece === "ell") return { w: TILE_W * 1.32 * s, h: TILE_H * 1.48 * s };
-  return { w: TILE_W * 1.48 * s, h: TILE_H * 1.38 * s };
-}
-
-function earthworkFlipX(mask: number): boolean {
-  return (mask & 2) !== 0 && (mask & 1) === 0;
-}
-
-function earthworkFlipY(mask: number): boolean {
-  return (mask & 8) !== 0 && (mask & 4) === 0;
-}
-
-function earthworkLinkSprite(
-  dx: number,
-  dy: number,
-  x: number,
-  y: number,
-  deep: boolean,
-): { key: string; rot: number; w: number; h: number } {
-  const s = deep ? 1 : 0.86;
-  if (dx === 1 && dy === 0) {
-    return {
-      key: pickTrenchOverlayKey("ne", x, y),
-      rot: (7 * Math.PI) / 180,
-      w: TILE_W * 1.22 * s,
-      h: TILE_H * 1.15 * s,
-    };
-  }
-  if (dx === 0 && dy === 1) {
-    return {
-      key: pickTrenchOverlayKey("nw", x, y),
-      rot: 0,
-      w: TILE_W * 1.22 * s,
-      h: TILE_H * 1.15 * s,
-    };
-  }
-  if (dx === 1 && dy === -1) {
-    return { key: "overlay_trench_h_0", rot: 0, w: TILE_W * 1.35 * s, h: TILE_H * 0.78 * s };
-  }
-  return { key: "overlay_trench_h_0", rot: Math.PI / 2, w: TILE_W * 1.35 * s, h: TILE_H * 0.78 * s };
-}
-
-function paintEarthworkNode(
+/** Disc at the cell center so strips meet on a corner and a lone pit has a cap. */
+function paintEarthworkJoint(
   gfx: Phaser.GameObjects.Graphics,
   x: number,
   y: number,
@@ -529,16 +388,18 @@ function paintEarthworkNode(
   oy: number,
   deep: boolean,
   fade: number,
+  pit: boolean,
 ): void {
   const { cx, cy } = isoCenter(x, y, ox, oy);
-  const rw = deep ? 11 : 8;
-  const rh = deep ? 6 : 4.5;
-  gfx.fillStyle(TRENCH_BANK, 0.95 * fade);
-  gfx.fillEllipse(cx, cy, rw * 2.15, rh * 2.15);
-  gfx.fillStyle(deep ? TRENCH_FLOOR : DITCH_FLOOR, 0.95 * fade);
-  gfx.fillEllipse(cx, cy, rw * 1.35, rh * 1.2);
-  gfx.lineStyle(1.2, TRENCH_LIP, 0.7 * fade);
-  gfx.strokeEllipse(cx, cy, rw * 2.15, rh * 2.15);
+  const { bank, floor } = earthworkWidths(deep);
+  const b = pit ? bank * 1.15 : bank;
+  const f = pit ? floor * 1.15 : floor;
+  gfx.fillStyle(TRENCH_BANK, 0.96 * fade);
+  gfx.fillCircle(cx, cy, b);
+  gfx.fillStyle(deep ? TRENCH_FLOOR : DITCH_FLOOR, 0.98 * fade);
+  gfx.fillCircle(cx, cy, f);
+  gfx.lineStyle(1.15, TRENCH_LIP, 0.65 * fade);
+  gfx.strokeCircle(cx, cy, b);
 }
 
 function paintEarthworkLink(
@@ -559,8 +420,7 @@ function paintEarthworkLink(
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len;
   const ny = dx / len;
-  const bank = deep ? 9 : 6.5;
-  const floor = deep ? 4.6 : 3.2;
+  const { bank, floor } = earthworkWidths(deep);
   fillStrip(gfx, a.cx, a.cy, b.cx, b.cy, nx * bank, ny * bank, TRENCH_BANK, 0.95 * fade);
   fillStrip(gfx, a.cx, a.cy, b.cx, b.cy, nx * floor, ny * floor, deep ? TRENCH_FLOOR : DITCH_FLOOR, 0.96 * fade);
   gfx.lineStyle(1.1, TRENCH_LIP, 0.55 * fade);
@@ -611,14 +471,14 @@ function ensureLayerCanvas(scene: Phaser.Scene, w: number, h: number): Phaser.Te
 }
 
 function cellGroundKey(view: TerrainLayerView, x: number, y: number): TerrainGroundKey | null {
-  const override = view.groundArt?.[y]?.[x];
-  if (override) return override;
   const terrain = view.map[y][x];
   if (terrain === "mountain" || terrain === "mountain_foot") return null;
+  // The trench photo is top-down. Keep the field plate and cut the ditch in iso.
+  if (terrain === "ditch" || terrain === "trench") return GROUND_SHEET.grass;
+  const override = view.groundArt?.[y]?.[x];
+  if (override) return override;
   if (terrain === "forest" || terrain === "road") return pickGroundKey(terrain, x, y);
-  if (terrain === "grass" || terrain === "ditch" || terrain === "trench") {
-    return GROUND_SHEET.grass;
-  }
+  if (terrain === "grass") return GROUND_SHEET.grass;
   return GROUND_SHEET[terrain];
 }
 

@@ -93,6 +93,9 @@ export class EditorScene extends Phaser.Scene {
   private ox = 0;
   private oy = 0;
   private painting = false;
+  /** Trench/ditch stroke stays on one axis until the button is released. */
+  private strokeAnchor: { x: number; y: number } | null = null;
+  private strokeAxis: readonly [number, number] | null = null;
   private uid = 0;
 
   private overlayGfx!: Phaser.GameObjects.Graphics;
@@ -201,6 +204,8 @@ export class EditorScene extends Phaser.Scene {
     });
     this.input.on("pointerup", () => {
       this.painting = false;
+      this.strokeAnchor = null;
+      this.strokeAxis = null;
     });
 
     this.input.keyboard?.on("keydown", (e: KeyboardEvent) => this.onKey(e));
@@ -516,7 +521,15 @@ export class EditorScene extends Phaser.Scene {
     }
 
     if (this.tool === "terrain") {
-      this.paintMaterial(map, gx, gy);
+      const earth =
+        this.brushKind === "ground" &&
+        (this.groundBrush.terrain === "trench" || this.groundBrush.terrain === "ditch");
+      if (earth) this.paintEarthworkStroke(map, gx, gy, isDown);
+      else {
+        this.strokeAnchor = null;
+        this.strokeAxis = null;
+        this.paintMaterial(map, gx, gy);
+      }
       this.redrawMap();
       return;
     }
@@ -541,6 +554,38 @@ export class EditorScene extends Phaser.Scene {
     if (this.tool === "army") {
       this.placeArmy(gx, gy);
       this.redrawMap();
+    }
+  }
+
+  /**
+   * Drag locks to the nearest straight axis (grid or screen).
+   * A corner is a new press. One-cell jitter is not painted, so the line does not stair-step.
+   */
+  private paintEarthworkStroke(map: MapDef, gx: number, gy: number, isDown: boolean): void {
+    if (isDown || !this.strokeAnchor) {
+      this.strokeAnchor = { x: gx, y: gy };
+      this.strokeAxis = null;
+      this.paintMaterial(map, gx, gy);
+      return;
+    }
+    const dx = gx - this.strokeAnchor.x;
+    const dy = gy - this.strokeAnchor.y;
+    if (dx === 0 && dy === 0) return;
+    if (!this.strokeAxis) {
+      const onAxis = dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy);
+      if (!onAxis && Math.max(Math.abs(dx), Math.abs(dy)) < 2) return;
+      this.strokeAxis = nearestEarthworkAxis(dx, dy);
+      this.setStatus("Прямой штрих. Угол — отпусти и нажми снова.");
+    }
+    const [ax, ay] = this.strokeAxis;
+    const span = ax * ax + ay * ay;
+    const n = Math.round((dx * ax + dy * ay) / span);
+    const step = Math.sign(n);
+    for (let i = 0; i <= Math.abs(n); i++) {
+      const x = this.strokeAnchor.x + ax * step * i;
+      const y = this.strokeAnchor.y + ay * step * i;
+      if (x < 0 || y < 0 || x >= map.cols || y >= map.rows) break;
+      this.paintMaterial(map, x, y);
     }
   }
 
@@ -698,11 +743,17 @@ export class EditorScene extends Phaser.Scene {
         `Армия: ${this.armyMode} (A)`,
         `Миссия: ${this.mapIndex + 1}/${this.scenario.maps.length}${startMark}`,
         `Цель: ${map.win?.type ?? this.scenario.win.type}`,
-        "",
+        " ",
         "1–8 кисть  T/C/O/A/E",
+        this.brushKind === "ground" &&
+        (this.groundBrush.terrain === "trench" || this.groundBrush.terrain === "ditch")
+          ? "Окоп и ров: прямой штрих, угол — новое нажатие"
+          : "",
         "[ ] миссии  P сюжет",
         "Ctrl+S сохранить",
-      ].join("\n"),
+      ]
+        .filter((line) => line !== "")
+        .join("\n"),
     );
 
   }
@@ -810,4 +861,28 @@ export class EditorScene extends Phaser.Scene {
       onComplete: () => this.setStatus("Превью сцены закончено"),
     });
   }
+}
+
+const EARTHWORK_AXES: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1],
+  [-1, -1],
+];
+
+function nearestEarthworkAxis(dx: number, dy: number): readonly [number, number] {
+  let best = EARTHWORK_AXES[0];
+  let bestScore = -Infinity;
+  for (const axis of EARTHWORK_AXES) {
+    const score = (dx * axis[0] + dy * axis[1]) / Math.hypot(axis[0], axis[1]);
+    if (score > bestScore) {
+      bestScore = score;
+      best = axis;
+    }
+  }
+  return best;
 }

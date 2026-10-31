@@ -96,6 +96,7 @@ export const BATTLE_ACTION_ASSETS: AssetEntry[] = [
 export const BATTLE_ASSETS: AssetEntry[] = [
   BATTLE_BG_ASSET,
   BATTLE_WINDOW_ASSET,
+  ["overlay_trench_h_0", "assets/terrain/overlay_trench_h_0.png"],
   ...HURT_PORTRAIT_ASSETS,
   ...FORMATION_FRAME_PATHS,
   ...UNIT_INFO_CARD_ASSETS,

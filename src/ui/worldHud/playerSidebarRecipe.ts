@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { armyMaxMoves, session, type Army } from "../../game/data";
-import { turnHudLine } from "../../game/dayNight";
+import { marchPointsLabel, turnHudLine } from "../../game/dayNight";
 import { portraitTextureKey } from "../../game/portraits";
 import { vintageLookForKey } from "../../game/vintagePortrait";
 import { classLabel } from "../../game/heroClasses";
@@ -541,10 +541,8 @@ export function refreshPlayerSidebarPieces(pieces: PlayerSidebarPieces, army: Ar
     .map((a) => a.name)
     .slice(0, 2)
     .join(", ");
-  const maxMoves = armyMaxMoves(army);
-  pieces.stepsValue.setText(
-    gear ? `${army.movesLeft}/${maxMoves} · ${gear}` : `${army.movesLeft}/${maxMoves}`,
-  );
+  const steps = marchPointsLabel(army.movesLeft, armyMaxMoves(army));
+  pieces.stepsValue.setText(gear ? `${steps} · ${gear}` : steps);
 }
 
 export function sidebarPanelOrigin(screenW: number, screenH: number): { x: number; y: number } {

@@ -7,6 +7,8 @@ import {
   BLOOD_ORDO_MANA,
   BLOOD_MOVE_PENALTY,
   CITY_BELL_RADIUS,
+  EXPLORE_MARCH_BUDGET,
+  EXPLORE_UNLIMITED_MARCH,
   MOVES_NIGHT_MISSIONARY,
   RUIN_SCOUT_RADIUS,
   UNIT_DEFS,
@@ -112,14 +114,25 @@ export function sameVeilLayer(a: Army, b: Army): boolean {
   return va === vb;
 }
 
-export function canArmiesEngage(state: GameState, a: Army, b: Army): boolean {
+/** Fight check for a face of the day — used when the foe marches while the clock is still night. */
+export function canArmiesEngageOnPhase(
+  state: GameState,
+  a: Army,
+  b: Army,
+  phase: DayPhase,
+): boolean {
+  void state;
   if (a.id === b.id) return false;
   if (a.isPlayer && b.isPlayer) return false;
   if (livingUnits(a).length === 0 || livingUnits(b).length === 0) return false;
-  if (!armyPresentNow(state, a) || !armyPresentNow(state, b)) return false;
+  if (!armyPresentOnPhase(a, phase) || !armyPresentOnPhase(b, phase)) return false;
   if (!sameVeilLayer(a, b)) return false;
   if (a.isMissionary || b.isMissionary) return false;
   return true;
+}
+
+export function canArmiesEngage(state: GameState, a: Army, b: Army): boolean {
+  return canArmiesEngageOnPhase(state, a, b, phaseOf(state));
 }
 
 export function veilPresenceLabel(army: Army): string {
@@ -132,6 +145,19 @@ export function veilPresenceLabel(army: Army): string {
 export function canArmyMarch(state: GameState, army: Army): boolean {
   if (isDay(state)) return !army.isNightHero;
   return isVeilActor(army);
+}
+
+/** Top up a player stack that is allowed to walk. No-op when exploration march is off. */
+export function grantExploreMarch(state: GameState, army: Army): void {
+  if (!EXPLORE_UNLIMITED_MARCH || !army.isPlayer) return;
+  if (!canArmyMarch(state, army)) return;
+  army.movesLeft = EXPLORE_MARCH_BUDGET;
+}
+
+export function marchPointsLabel(movesLeft: number, maxMoves?: number): string {
+  if (EXPLORE_UNLIMITED_MARCH && movesLeft >= EXPLORE_MARCH_BUDGET) return "∞";
+  if (maxMoves === undefined) return String(movesLeft);
+  return `${movesLeft}/${maxMoves}`;
 }
 
 export function canArmyAttack(state: GameState, army: Army): boolean {
@@ -197,8 +223,10 @@ export function bloodMovePenalty(
   x: number,
   y: number,
   mapId = state.currentMapId,
+  phase?: DayPhase,
 ): number {
-  if (isNight(state)) return 0;
+  const face = phase ?? phaseOf(state);
+  if (face === "night") return 0;
   return bloodAt(state, x, y, mapId) ? BLOOD_MOVE_PENALTY : 0;
 }
 

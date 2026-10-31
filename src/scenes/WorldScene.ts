@@ -106,11 +106,13 @@ import { paintPathFlags, type ArmyPathGoal, type PendingPathOrder } from "./worl
 import {
   applyDawnVeil,
   armyPresentNow,
+  armyPresentOnPhase,
   beginNight,
   bloodMovePenalty,
   canArmyAttack,
   canArmyMarch,
   canArmiesEngage,
+  canArmiesEngageOnPhase,
   canLookRuins,
   canPray,
   canRequiem,
@@ -118,6 +120,7 @@ import {
   consumePrayerAp,
   enemyNightCollectBlood,
   ensureNightHero,
+  grantExploreMarch,
   isDay,
   isNight,
   isVeilActor,
@@ -126,6 +129,14 @@ import {
   sameVeilLayer,
   selectPhaseArmy,
 } from "../game/dayNight";
+import {
+  hostileMarchers,
+  inEnemyAggro,
+  pickMarchTarget,
+  planEnemyMarch,
+} from "../game/enemyMarch";
+import { FACTION_LABEL } from "../game/catalog";
+import type { DayPhase } from "../game/types";
 
 function isOwnedCity(faction: string | null | undefined): boolean {
   return faction === playerFactionOf(session.state);
@@ -143,10 +154,6 @@ function setMapGeometry(cols: number, rows: number, screenW: number, screenH: nu
   const origin = computeIsoOrigin(cols, rows, screenW, 56, screenH - 24, worldGutterW(screenW));
   OX = origin.ox;
   OY = origin.oy;
-}
-
-function dist(ax: number, ay: number, bx: number, by: number): number {
-  return Math.abs(ax - bx) + Math.abs(ay - by);
 }
 
 function isoTop(x: number, y: number): { sx: number; sy: number } {
@@ -363,7 +370,11 @@ export class WorldScene extends Phaser.Scene {
     onViewResize(this, () => this.layoutWorld());
 
     if (session.state.gameOver) {
+      session.state.enemyTurn = null;
       this.showGameOver(session.state.gameOver);
+    } else if (session.state.enemyTurn) {
+      this.movementBusy = true;
+      this.time.delayedCall(80, () => this.resumeEnemyTurn());
     } else {
       this.time.delayedCall(80, () => {
         this.playPlotEvents(
@@ -593,7 +604,7 @@ export class WorldScene extends Phaser.Scene {
       discovered: this.fog(),
       visible: this.visible,
       reachables: this.reachables,
-      night: isNight(session.state),
+      night: this.mapIsNight(),
     });
   }
 
@@ -703,7 +714,7 @@ export class WorldScene extends Phaser.Scene {
       isoCenter,
     );
     paintBloodStains(this, this.tileGfx, session.state, fog, this.visible, isoCenter);
-    this.atmosphere.setNight(isNight(session.state));
+    this.atmosphere.setNight(this.mapIsNight());
   }
 
   private setupCameraBounds() {
@@ -779,14 +790,16 @@ export class WorldScene extends Phaser.Scene {
       visible: this.visible,
       selectedArmyId: session.state.selectedArmyId,
       isoCenter,
-      night: isNight(session.state),
+      night: this.mapIsNight(),
     });
   }
 
   private refreshReachables() {
     this.reachables.clear();
     const army = this.selectedPlayerArmy();
-    if (!army || army.movesLeft <= 0 || session.state.gameOver) return;
+    if (!army || session.state.gameOver) return;
+    grantExploreMarch(session.state, army);
+    if (army.movesLeft <= 0) return;
     if (!canArmyMarch(session.state, army)) return;
 
     const blocked = (x: number, y: number) => !!this.armyAt(x, y, army.id, army);
@@ -1056,6 +1069,7 @@ export class WorldScene extends Phaser.Scene {
     if (this.movementBusy || this.plotBusy || this.modalOpen()) return;
     const army = this.selectedPlayerArmy();
     if (!army) return;
+    grantExploreMarch(session.state, army);
     if (!canArmyMarch(session.state, army)) {
       session.state.lastMessage = "Ночь. Живые в лагере.";
       this.refreshUi();
@@ -1088,6 +1102,7 @@ export class WorldScene extends Phaser.Scene {
     const dest = found.path[found.path.length - 1];
     if (total <= player.movesLeft) {
       player.movesLeft -= total;
+      grantExploreMarch(session.state, player);
       this.beginMarch(player, found.path, () => {
         if (attack && enemy && canArmiesEngage(session.state, player, enemy)) {
           this.armyGoals.delete(player.id);
@@ -1109,6 +1124,7 @@ export class WorldScene extends Phaser.Scene {
     }
     const spent = walkCosts[slice.length - 1] ?? 0;
     player.movesLeft -= spent;
+    grantExploreMarch(session.state, player);
     const stop = slice[slice.length - 1];
     this.beginMarch(player, slice, () => {
       this.finishPlayerArrival(player, stop.x, stop.y, this.armyAt(stop.x, stop.y, player.id, player));
@@ -1425,22 +1441,27 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.pan(look.x, look.y, 480, "Sine.easeInOut");
   }
 
-  private startBattle(playerArmyId: string, enemyArmyId: string) {
+  private startBattle(playerArmyId: string, enemyArmyId: string, onPhase?: DayPhase): boolean {
     const player = session.state.armies.find((a) => a.id === playerArmyId);
     const enemy = session.state.armies.find((a) => a.id === enemyArmyId);
-    if (!player || !enemy) return;
-    if (!canArmiesEngage(session.state, player, enemy)) {
+    if (!player || !enemy) return false;
+    const engaged = onPhase
+      ? canArmiesEngageOnPhase(session.state, player, enemy, onPhase)
+      : canArmiesEngage(session.state, player, enemy);
+    if (!engaged) {
       session.state.lastMessage = "Дневной и ночной отряд не сходятся";
       this.refreshUi();
-      return;
+      return false;
     }
     const city = cityAt(session.state, enemy.x, enemy.y);
     const siege = !enemy.isNeutral && !!city && city.faction === enemy.faction;
     this.scene.start("Battle", { playerArmyId, enemyArmyId, siege });
+    return true;
   }
 
   private endTurn() {
     if (session.state.gameOver || this.plotBusy || this.movementBusy) return;
+    if (session.state.enemyTurn) return;
 
     if (isDay(session.state)) {
       beginNight(session.state);
@@ -1449,32 +1470,220 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
+    this.beginEnemyTurn();
+  }
+
+  /** Clock stays on the player's night until both foe faces finish. */
+  private mapIsNight(): boolean {
+    const face = session.state.enemyTurn?.phase;
+    if (face === "day" || face === "night") return face === "night";
+    return isNight(session.state);
+  }
+
+  private beginEnemyTurn(): void {
+    session.state.enemyTurn = { phase: "day", marched: [] };
+    session.state.lastMessage = "День врага.";
+    this.movementBusy = true;
+    this.redraw(true);
+    this.stepEnemyTurn(() => this.finishEnemyTurn());
+  }
+
+  private resumeEnemyTurn(): void {
+    this.resolveFallenCapital();
+    if (!session.state.enemyTurn || session.state.gameOver) {
+      this.finishEnemyTurn();
+      return;
+    }
+    this.movementBusy = true;
+    this.redraw(true);
+    this.stepEnemyTurn(() => this.finishEnemyTurn());
+  }
+
+  /** Capital taken under a stack: the fight can take it back. Otherwise the day is lost. */
+  private resolveFallenCapital(): void {
+    const id = session.state.enemyTurn?.fallenCapitalId;
+    if (!id) return;
+    const city = session.state.cities.find((c) => c.id === id);
+    const pf = playerFactionOf(session.state);
+    if (!city || city.faction === pf) {
+      if (session.state.enemyTurn) session.state.enemyTurn.fallenCapitalId = undefined;
+      return;
+    }
+    session.state.gameOver = "defeat";
+    session.state.lastMessage = `${city.name} пал. Столица потеряна.`;
+  }
+
+  private finishEnemyTurn(): void {
+    this.resolveFallenCapital();
+    session.state.enemyTurn = null;
+    this.movementBusy = false;
+    if (session.state.gameOver) {
+      this.redraw(false);
+      this.showGameOver(session.state.gameOver);
+      return;
+    }
+
     const bloodMsg = enemyNightCollectBlood(session.state);
     const dawnMsg = this.applyDawn(bloodMsg);
-    this.movementBusy = true;
-    this.moveEnemies(() => {
-      this.movementBusy = false;
-      this.refreshFog();
-      this.refreshReachables();
-      this.syncSelectedGoal();
-      this.drawMap();
-      this.drawArmies();
-      this.drawPathFlags();
-      const pathMsg = this.pathGoalMessage();
-      if (pathMsg) session.state.lastMessage = `${dawnMsg} · ${pathMsg}`;
-      this.refreshUi();
+    this.refreshFog();
+    this.refreshReachables();
+    this.syncSelectedGoal();
+    this.drawMap();
+    this.drawArmies();
+    this.drawPathFlags();
+    const pathMsg = this.pathGoalMessage();
+    if (pathMsg) session.state.lastMessage = `${dawnMsg} · ${pathMsg}`;
+    this.refreshUi();
 
-      if (session.state.gameOver === "defeat") {
-        this.showGameOver("defeat");
+    if (session.state.gameOver === "defeat") {
+      this.showGameOver("defeat");
+      return;
+    }
+
+    this.playPlotEvents(
+      [{ type: "turn", turn: session.state.turn, mapId: session.state.currentMapId }],
+      () => {
+        this.applyMissionCheck();
+      },
+    );
+  }
+
+  private stepEnemyTurn(done: () => void): void {
+    const turn = session.state.enemyTurn;
+    if (!turn || session.state.gameOver) {
+      done();
+      return;
+    }
+
+    const phase = turn.phase;
+    const enemy = hostileMarchers(session.state, phase).find((a) => !turn.marched.includes(a.id));
+    if (!enemy) {
+      if (phase === "day" && hostileMarchers(session.state, "night").length > 0) {
+        turn.phase = "night";
+        turn.marched = [];
+        session.state.lastMessage = "Ночь врага. На шве ходят только ночные.";
+        this.redraw(true);
+        this.stepEnemyTurn(done);
         return;
       }
+      done();
+      return;
+    }
 
-      this.playPlotEvents(
-        [{ type: "turn", turn: session.state.turn, mapId: session.state.currentMapId }],
-        () => {
-          this.applyMissionCheck();
-        },
+    turn.marched.push(enemy.id);
+    const target = pickMarchTarget(session.state, enemy, phase);
+    if (!target || !inEnemyAggro(enemy, target, this.visible)) {
+      this.stepEnemyTurn(done);
+      return;
+    }
+
+    const occupied = (x: number, y: number) => {
+      if (x === target.x && y === target.y) return false;
+      return session.state.armies.some(
+        (a) =>
+          a.id !== enemy.id &&
+          a.mapId === session.state.currentMapId &&
+          a.x === x &&
+          a.y === y &&
+          livingUnits(a).length > 0 &&
+          armyPresentOnPhase(a, phase) &&
+          sameVeilLayer(enemy, a),
       );
+    };
+    const stepCost = (x: number, y: number, terrain: Terrain) => {
+      const step = terrainMoveCost(terrain);
+      if (phase !== "day") return step;
+      return step + bloodMovePenalty(session.state, x, y, session.state.currentMapId, "day");
+    };
+    const path = planEnemyMarch(this.map, enemy, target, COLS, ROWS, occupied, stepCost);
+    if (!path) {
+      this.stepEnemyTurn(done);
+      return;
+    }
+
+    this.playEnemyMarch(enemy, path, phase, () => {
+      if (session.state.gameOver) {
+        done();
+        return;
+      }
+      const foe = this.armyOnFaceAt(enemy.x, enemy.y, phase, enemy.id);
+      if (foe?.isPlayer && this.startBattle(foe.id, enemy.id, phase)) return;
+      this.stepEnemyTurn(done);
+    });
+  }
+
+  private armyOnFaceAt(
+    x: number,
+    y: number,
+    phase: DayPhase,
+    exceptId?: string,
+  ): Army | undefined {
+    const list = session.state.armies.filter(
+      (a) =>
+        a.mapId === session.state.currentMapId &&
+        a.x === x &&
+        a.y === y &&
+        a.id !== exceptId &&
+        livingUnits(a).length > 0 &&
+        armyPresentOnPhase(a, phase),
+    );
+    return list.find((a) => a.isPlayer) ?? list[0];
+  }
+
+  private playEnemyMarch(enemy: Army, path: GridPos[], phase: DayPhase, then: () => void): void {
+    const applyCell = (cell: GridPos): void => {
+      enemy.x = cell.x;
+      enemy.y = cell.y;
+      if (phase !== "day" || session.state.gameOver) return;
+
+      const city = cityAt(session.state, enemy.x, enemy.y);
+      if (city && isOwnedCity(city.faction)) {
+        const defender = this.armyOnFaceAt(cell.x, cell.y, phase, enemy.id);
+        captureCity(city, enemy.faction);
+        if (city.isCapital && defender?.isPlayer && session.state.enemyTurn) {
+          session.state.enemyTurn.fallenCapitalId = city.id;
+          session.state.lastMessage = `${FACTION_LABEL[enemy.faction]} вошёл в ${city.name}. Бой за столицу.`;
+        } else if (city.isCapital && enemy.faction === "ordo") {
+          session.state.lastMessage = `${city.name} пал под Рейхом — мир на чужих условиях!`;
+          session.state.gameOver = "defeat";
+        } else if (city.isCapital) {
+          session.state.lastMessage = `${city.name} пала. ${FACTION_LABEL[enemy.faction]} в столице.`;
+          session.state.gameOver = "defeat";
+        } else {
+          session.state.lastMessage = `${FACTION_LABEL[enemy.faction]} берёт ${city.name}.`;
+        }
+      }
+
+      const site = siteAt(session.state, enemy.x, enemy.y);
+      if (site && captureSite(site, enemy.faction) && !session.state.gameOver) {
+        session.state.lastMessage = `${SITE_LABEL[site.kind]} захвачена ${FACTION_LABEL[enemy.faction]}!`;
+      }
+    };
+
+    const inView = path.some((cell) => !!this.visible[cell.y]?.[cell.x]);
+    if (!inView) {
+      for (const cell of path.slice(1)) {
+        applyCell(cell);
+        if (session.state.gameOver) break;
+      }
+      then();
+      return;
+    }
+
+    if (this.visible[enemy.y]?.[enemy.x]) this.centerCameraOnTile(enemy.x, enemy.y);
+    this.armyLayer.ensureMarker(enemy, session.state.selectedArmyId, isoCenter);
+    this.armyLayer.marchAlongPath({
+      armyId: enemy.id,
+      path,
+      isoCenter,
+      stepMs: (cell) => this.stepDuration(cell),
+      onStepEnd: (cell) => {
+        applyCell(cell);
+        this.refreshFog();
+        this.redrawTerrain();
+        this.drawArmies();
+      },
+      onComplete: then,
     });
   }
 
@@ -1512,126 +1721,6 @@ export class WorldScene extends Phaser.Scene {
     this.atmosphere.setNight(false);
     this.redraw(false);
     return msg;
-  }
-
-  private moveEnemies(then: () => void): void {
-    const player = session.state.armies.find(
-      (a) =>
-        a.isPlayer &&
-        a.mapId === session.state.currentMapId &&
-        livingUnits(a).length > 0 &&
-        armyPresentNow(session.state, a) &&
-        !a.isNightHero,
-    );
-    if (!player) {
-      then();
-      return;
-    }
-
-    const enemies = session.state.armies.filter(
-      (enemy) =>
-        enemy.mapId === session.state.currentMapId &&
-        !enemy.isPlayer &&
-        !enemy.isNeutral &&
-        livingUnits(enemy).length > 0 &&
-        armyPresentNow(session.state, enemy),
-    );
-
-    const stepEnemy = (i: number): void => {
-      if (i >= enemies.length) {
-        then();
-        return;
-      }
-      const enemy = enemies[i];
-      if (livingUnits(enemy).length === 0) {
-        stepEnemy(i + 1);
-        return;
-      }
-      if (!this.visible[enemy.y]?.[enemy.x] && dist(enemy.x, enemy.y, player.x, player.y) > 5) {
-        stepEnemy(i + 1);
-        return;
-      }
-
-      enemy.movesLeft = 2;
-      if (dist(enemy.x, enemy.y, player.x, player.y) <= 1) {
-        if (canArmiesEngage(session.state, player, enemy)) {
-          this.startBattle(player.id, enemy.id);
-          return;
-        }
-        stepEnemy(i + 1);
-        return;
-      }
-
-      const dx = Math.sign(player.x - enemy.x);
-      const dy = Math.sign(player.y - enemy.y);
-      const nx = enemy.x + (dx !== 0 ? dx : 0);
-      const ny = enemy.y + (dx === 0 ? dy : 0);
-      const canStep =
-        nx >= 0 &&
-        ny >= 0 &&
-        nx < COLS &&
-        ny < ROWS &&
-        !isBlockedTerrain(this.map[ny][nx]) &&
-        !this.armyAt(nx, ny, enemy.id, enemy);
-
-      if (!canStep) {
-        stepEnemy(i + 1);
-        return;
-      }
-
-      const applyArrival = (): void => {
-        enemy.x = nx;
-        enemy.y = ny;
-
-        const city = cityAt(session.state, enemy.x, enemy.y);
-        if (city && isOwnedCity(city.faction)) {
-          captureCity(city, "ordo");
-          session.state.lastMessage = `${city.name} пал под Рейхом — мир на чужих условиях!`;
-          if (city.isCapital) {
-            session.state.gameOver = "defeat";
-          }
-        }
-
-        const site = siteAt(session.state, enemy.x, enemy.y);
-        if (site && captureSite(site, enemy.faction)) {
-          session.state.lastMessage = `${SITE_LABEL[site.kind]} захвачена ${
-            enemy.faction === "ordo" ? "Ordo Lumen" : "врагом"
-          }!`;
-        }
-
-        if (enemy.x === player.x && enemy.y === player.y) {
-          this.startBattle(player.id, enemy.id);
-          return;
-        }
-        stepEnemy(i + 1);
-      };
-
-      const from = { x: enemy.x, y: enemy.y };
-      const dest = { x: nx, y: ny };
-      const inView = !!this.visible[from.y]?.[from.x] || !!this.visible[dest.y]?.[dest.x];
-      if (!inView) {
-        applyArrival();
-        return;
-      }
-
-      this.armyLayer.ensureMarker(enemy, session.state.selectedArmyId, isoCenter);
-      this.armyLayer.marchAlongPath({
-        armyId: enemy.id,
-        path: [from, { x: nx, y: ny }],
-        isoCenter,
-        stepMs: (cell) => this.stepDuration(cell),
-        onStepEnd: (cell) => {
-          enemy.x = cell.x;
-          enemy.y = cell.y;
-          this.refreshFog();
-          this.redrawTerrain();
-          this.drawArmies();
-        },
-        onComplete: applyArrival,
-      });
-    };
-
-    stepEnemy(0);
   }
 
   private cityContext(): { army: Army | null; city: NonNullable<ReturnType<typeof cityAt>> } | null {

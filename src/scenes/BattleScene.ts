@@ -5,6 +5,7 @@
  * Focus portraits: src/ui/BattleFocusWindows.ts
  */
 import Phaser from "phaser";
+import { ensureCutout } from "../game/chromaCutout";
 import {
   applyDefendReduction,
   applyDamage,
@@ -145,6 +146,7 @@ export class BattleScene extends Phaser.Scene {
   private defending = new Set<string>();
   private battleCx = 640;
   private arenaGfx?: Phaser.GameObjects.Graphics;
+  private trenchImgs: Phaser.GameObjects.Image[] = [];
   private screenFrame?: ScreenCharcoalFrame;
   private windowFrame?: BattleWindowFrame;
   private stage?: BattleStage;
@@ -181,6 +183,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   shutdown() {
+    for (const img of this.trenchImgs) img.destroy();
+    this.trenchImgs = [];
     this.clearEndWatch();
     this.clearPendingTimers();
     this.actionEpoch++;
@@ -716,10 +720,32 @@ export class BattleScene extends Phaser.Scene {
     const { w, h } = viewSize(this);
     const arena = battleArenaLayoutRect(w, h);
     this.arenaGfx?.destroy();
+    for (const img of this.trenchImgs) img.destroy();
+    this.trenchImgs = [];
 
-    const g = this.add.graphics().setDepth(0);
+    const g = this.add.graphics().setDepth(0).setScrollFactor(0);
     this.arenaGfx = g;
-    paintBattleArena(g, arena, this.battleCx);
+    g.fillStyle(0x2a2418, 0.72);
+    g.fillRect(arena.x + arena.w * 0.22, arena.y + arena.h * 0.36, arena.w * 0.56, arena.h * 0.28);
+
+    const cut = ensureCutout(this, "overlay_trench_h_0");
+    if (!cut) {
+      paintBattleArena(g, arena, this.battleCx);
+      return;
+    }
+
+    const count = 3;
+    const segW = (arena.w * 0.56) / count;
+    const y = arena.y + arena.h * 0.5;
+    const x0 = arena.x + arena.w * 0.22;
+    for (let i = 0; i < count; i++) {
+      const img = this.add.image(x0 + segW * (i + 0.5), y, cut).setDepth(0.4).setScrollFactor(0);
+      const src = img.texture.getSourceImage() as { width: number; height: number };
+      const aspect = Math.max(1, src.width) / Math.max(1, src.height);
+      const dw = segW * 1.04;
+      img.setDisplaySize(dw, Math.max(28, dw / aspect));
+      this.trenchImgs.push(img);
+    }
   }
 
   private drawEmptySlotPlates(side: "player" | "enemy") {

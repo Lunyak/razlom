@@ -19,6 +19,14 @@ export type DayPhase = "day" | "night";
 /** Who this army exists for on the seam. Omitted → inferred (night hero, missionary, else day). */
 export type VeilPresence = "day" | "night" | "both";
 
+/** Foe still owes a day march, then a night march, before the player's dawn. Survives a battle. */
+export interface EnemyTurn {
+  phase: DayPhase;
+  marched: string[];
+  /** Player capital seized under a defender. Defeat if it is still enemy after the fight. */
+  fallenCapitalId?: string;
+}
+
 /** Map cell mark (blood, ruin memory, night scout). */
 export interface TileMark {
   mapId: string;
@@ -158,4 +166,6 @@ export interface GameState {
   cityRitesUsed?: string[];
   /** City bells; fog opens around these cells at dawn. */
   cityBells?: TileMark[];
+  /** Set from the end of the player's night until foe day, foe night, and dawn finish. */
+  enemyTurn?: EnemyTurn | null;
 }

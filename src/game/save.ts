@@ -78,6 +78,13 @@ export function applyLoadedState(state: GameState): void {
   if (!Array.isArray(state.ruinScouts)) state.ruinScouts = [];
   if (!Array.isArray(state.cityRitesUsed)) state.cityRitesUsed = [];
   if (!Array.isArray(state.cityBells)) state.cityBells = [];
+  if (
+    !state.enemyTurn ||
+    (state.enemyTurn.phase !== "day" && state.enemyTurn.phase !== "night") ||
+    !Array.isArray(state.enemyTurn.marched)
+  ) {
+    state.enemyTurn = null;
+  }
   if (!Array.isArray(state.rails)) state.rails = [];
   if (!state.inventory) state.inventory = startingInventory();
   else ensureInventory(state);
